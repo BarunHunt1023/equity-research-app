@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, HTTPException
 from app.models.schemas import AnalyzeRequest, ForecastRequest, DCFRequest, RelativeValuationRequest
 from app.services import yahoo_finance, financial_analysis, forecasting, dcf_valuation, relative_valuation
@@ -23,6 +25,11 @@ def analyze(req: AnalyzeRequest):
             "ratios": ratios,
             "historical_metrics": historical,
         }
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=503,
+            detail="Yahoo Finance is temporarily unavailable. Please try again in a few seconds."
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

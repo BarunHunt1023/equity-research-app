@@ -1,6 +1,34 @@
+import time
+import json
+
+import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
+
+
+def _create_session():
+    """Create a requests session with browser-like headers to avoid Yahoo Finance blocking."""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    })
+    return session
+
+
+def _retry(fn, retries=3):
+    """Retry a function with exponential backoff. Raises on final failure."""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            return fn()
+        except (json.JSONDecodeError, requests.exceptions.RequestException, Exception) as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+    raise last_err
 
 
 def _safe_val(v):
@@ -32,40 +60,47 @@ def _df_to_dict(df: pd.DataFrame) -> dict:
 
 
 def get_company_info(ticker: str) -> dict:
-    t = yf.Ticker(ticker)
-    info = t.info or {}
-    return {
-        "ticker": ticker.upper(),
-        "name": info.get("longName") or info.get("shortName", ticker.upper()),
-        "sector": info.get("sector", "N/A"),
-        "industry": info.get("industry", "N/A"),
-        "country": info.get("country", "N/A"),
-        "market_cap": _safe_val(info.get("marketCap")),
-        "enterprise_value": _safe_val(info.get("enterpriseValue")),
-        "current_price": _safe_val(info.get("currentPrice") or info.get("regularMarketPrice")),
-        "currency": info.get("currency", "USD"),
-        "shares_outstanding": _safe_val(info.get("sharesOutstanding")),
-        "beta": _safe_val(info.get("beta")),
-        "trailing_pe": _safe_val(info.get("trailingPE")),
-        "forward_pe": _safe_val(info.get("forwardPE")),
-        "dividend_yield": _safe_val(info.get("dividendYield")),
-        "fifty_two_week_high": _safe_val(info.get("fiftyTwoWeekHigh")),
-        "fifty_two_week_low": _safe_val(info.get("fiftyTwoWeekLow")),
-        "description": info.get("longBusinessSummary", ""),
-    }
+    def _fetch():
+        session = _create_session()
+        t = yf.Ticker(ticker, session=session)
+        info = t.info or {}
+        return {
+            "ticker": ticker.upper(),
+            "name": info.get("longName") or info.get("shortName", ticker.upper()),
+            "sector": info.get("sector", "N/A"),
+            "industry": info.get("industry", "N/A"),
+            "country": info.get("country", "N/A"),
+            "market_cap": _safe_val(info.get("marketCap")),
+            "enterprise_value": _safe_val(info.get("enterpriseValue")),
+            "current_price": _safe_val(info.get("currentPrice") or info.get("regularMarketPrice")),
+            "currency": info.get("currency", "USD"),
+            "shares_outstanding": _safe_val(info.get("sharesOutstanding")),
+            "beta": _safe_val(info.get("beta")),
+            "trailing_pe": _safe_val(info.get("trailingPE")),
+            "forward_pe": _safe_val(info.get("forwardPE")),
+            "dividend_yield": _safe_val(info.get("dividendYield")),
+            "fifty_two_week_high": _safe_val(info.get("fiftyTwoWeekHigh")),
+            "fifty_two_week_low": _safe_val(info.get("fiftyTwoWeekLow")),
+            "description": info.get("longBusinessSummary", ""),
+        }
+    return _retry(_fetch)
 
 
 def get_financials(ticker: str) -> dict:
-    t = yf.Ticker(ticker)
-    return {
-        "income_statement": _df_to_dict(t.financials),
-        "balance_sheet": _df_to_dict(t.balance_sheet),
-        "cash_flow": _df_to_dict(t.cashflow),
-    }
+    def _fetch():
+        session = _create_session()
+        t = yf.Ticker(ticker, session=session)
+        return {
+            "income_statement": _df_to_dict(t.financials),
+            "balance_sheet": _df_to_dict(t.balance_sheet),
+            "cash_flow": _df_to_dict(t.cashflow),
+        }
+    return _retry(_fetch)
 
 
 def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
-    t = yf.Ticker(ticker)
+    session = _create_session()
+    t = yf.Ticker(ticker, session=session)
     hist = t.history(period=period)
     if hist.empty:
         return []
@@ -85,7 +120,8 @@ def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
 def get_risk_free_rate() -> float:
     """Fetch 10-Year Treasury yield as risk-free rate proxy."""
     try:
-        tnx = yf.Ticker("^TNX")
+        session = _create_session()
+        tnx = yf.Ticker("^TNX", session=session)
         hist = tnx.history(period="5d")
         if not hist.empty:
             return float(hist["Close"].iloc[-1]) / 100.0
@@ -96,7 +132,8 @@ def get_risk_free_rate() -> float:
 
 def get_peer_tickers(ticker: str, max_peers: int = 5) -> list[str]:
     """Find peer companies in the same sector/industry."""
-    t = yf.Ticker(ticker)
+    session = _create_session()
+    t = yf.Ticker(ticker, session=session)
     info = t.info or {}
     sector = info.get("sector", "")
     industry = info.get("industry", "")
@@ -127,7 +164,8 @@ def get_peer_data(tickers: list[str]) -> list[dict]:
     results = []
     for t in tickers:
         try:
-            info = yf.Ticker(t).info or {}
+            session = _create_session()
+            info = yf.Ticker(t, session=session).info or {}
             results.append({
                 "ticker": t,
                 "name": info.get("longName") or info.get("shortName", t),
