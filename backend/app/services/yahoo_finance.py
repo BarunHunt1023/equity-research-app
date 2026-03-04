@@ -5,29 +5,42 @@ import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from requests import Session
+from requests_cache import CacheMixin, SQLiteCache
+from requests_ratelimiter import LimiterMixin, MemoryQueueBucket
+from pyrate_limiter import Duration, RequestRate, Limiter
 
 
-def _create_session():
-    """Create a requests session with browser-like headers to avoid Yahoo Finance blocking."""
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-    })
-    return session
+class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
+    """Session that caches responses and rate-limits requests."""
+    pass
+
+
+# Module-level singleton: max 2 requests per 5 seconds, cache for 1 hour
+_session = CachedLimiterSession(
+    limiter=Limiter(RequestRate(2, Duration.SECOND * 5)),
+    bucket_class=MemoryQueueBucket,
+    backend=SQLiteCache("/tmp/yfinance.cache", expire_after=3600),
+)
+_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive",
+})
 
 
 def _retry(fn, retries=3):
-    """Retry a function with exponential backoff. Raises on final failure."""
+    """Retry a function with longer backoff to respect rate limits."""
     last_err = None
     for attempt in range(retries):
         try:
             return fn()
-        except (json.JSONDecodeError, requests.exceptions.RequestException, Exception) as e:
+        except Exception as e:
             last_err = e
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2 + attempt * 4)  # 2s, 6s, 10s
     raise last_err
 
 
@@ -61,8 +74,7 @@ def _df_to_dict(df: pd.DataFrame) -> dict:
 
 def get_company_info(ticker: str) -> dict:
     def _fetch():
-        session = _create_session()
-        t = yf.Ticker(ticker, session=session)
+        t = yf.Ticker(ticker, session=_session)
         info = t.info or {}
         return {
             "ticker": ticker.upper(),
@@ -88,8 +100,7 @@ def get_company_info(ticker: str) -> dict:
 
 def get_financials(ticker: str) -> dict:
     def _fetch():
-        session = _create_session()
-        t = yf.Ticker(ticker, session=session)
+        t = yf.Ticker(ticker, session=_session)
         return {
             "income_statement": _df_to_dict(t.financials),
             "balance_sheet": _df_to_dict(t.balance_sheet),
@@ -99,8 +110,7 @@ def get_financials(ticker: str) -> dict:
 
 
 def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
-    session = _create_session()
-    t = yf.Ticker(ticker, session=session)
+    t = yf.Ticker(ticker, session=_session)
     hist = t.history(period=period)
     if hist.empty:
         return []
@@ -120,8 +130,7 @@ def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
 def get_risk_free_rate() -> float:
     """Fetch 10-Year Treasury yield as risk-free rate proxy."""
     try:
-        session = _create_session()
-        tnx = yf.Ticker("^TNX", session=session)
+        tnx = yf.Ticker("^TNX", session=_session)
         hist = tnx.history(period="5d")
         if not hist.empty:
             return float(hist["Close"].iloc[-1]) / 100.0
@@ -132,11 +141,9 @@ def get_risk_free_rate() -> float:
 
 def get_peer_tickers(ticker: str, max_peers: int = 5) -> list[str]:
     """Find peer companies in the same sector/industry."""
-    session = _create_session()
-    t = yf.Ticker(ticker, session=session)
+    t = yf.Ticker(ticker, session=_session)
     info = t.info or {}
     sector = info.get("sector", "")
-    industry = info.get("industry", "")
 
     # Use a curated mapping for common sectors as yfinance doesn't have a peer API
     sector_peers = {
@@ -164,8 +171,7 @@ def get_peer_data(tickers: list[str]) -> list[dict]:
     results = []
     for t in tickers:
         try:
-            session = _create_session()
-            info = yf.Ticker(t, session=session).info or {}
+            info = yf.Ticker(t, session=_session).info or {}
             results.append({
                 "ticker": t,
                 "name": info.get("longName") or info.get("shortName", t),
@@ -181,6 +187,7 @@ def get_peer_data(tickers: list[str]) -> list[dict]:
                 "revenue": _safe_val(info.get("totalRevenue")),
                 "ebitda": _safe_val(info.get("ebitda")),
             })
+            time.sleep(1)  # gentle delay between peer fetches
         except Exception:
             continue
     return results

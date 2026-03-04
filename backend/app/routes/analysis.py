@@ -1,4 +1,5 @@
 import json
+import time
 
 from fastapi import APIRouter, HTTPException
 from app.models.schemas import AnalyzeRequest, ForecastRequest, DCFRequest, RelativeValuationRequest
@@ -13,7 +14,9 @@ def analyze(req: AnalyzeRequest):
     try:
         ticker = req.ticker.upper().strip()
         company_info = yahoo_finance.get_company_info(ticker)
+        time.sleep(1)
         financials = yahoo_finance.get_financials(ticker)
+        time.sleep(1)
         prices = yahoo_finance.get_historical_prices(ticker, period="5y")
         ratios = financial_analysis.compute_ratios(financials)
         historical = financial_analysis.compute_historical_metrics(financials)
