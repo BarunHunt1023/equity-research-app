@@ -5,3 +5,4 @@ __pycache__/
 .env
 backend/uploads/*.pdf
 .vite/
+.venv/
