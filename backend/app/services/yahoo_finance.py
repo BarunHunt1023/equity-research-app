@@ -1,33 +1,47 @@
 import time
-import json
+import threading
+from functools import lru_cache
 
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from requests import Session
-from requests_cache import CacheMixin, SQLiteCache
-from requests_ratelimiter import LimiterMixin, InMemoryBucket
-from pyrate_limiter import Duration, Rate, Limiter
 
 
-class CachedLimiterSession(CacheMixin, LimiterMixin, Session):
-    """Session that caches responses and rate-limits requests."""
-    pass
+# Simple rate limiter: track last request time, enforce minimum gap
+_rate_lock = threading.Lock()
+_last_request_time = 0.0
+_MIN_REQUEST_GAP = 2.5  # seconds between Yahoo Finance requests
 
 
-# Module-level singleton: max 2 requests per 5 seconds, cache for 1 hour
-_session = CachedLimiterSession(
-    limiter=Limiter(Rate(2, Duration.SECOND * 5)),
-    bucket_class=InMemoryBucket,
-    backend=SQLiteCache("/tmp/yfinance.cache", expire_after=3600),
-)
-_session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate",
-    "Connection": "keep-alive",
-})
+def _rate_limit():
+    """Enforce minimum gap between Yahoo Finance requests."""
+    global _last_request_time
+    with _rate_lock:
+        now = time.time()
+        elapsed = now - _last_request_time
+        if elapsed < _MIN_REQUEST_GAP:
+            time.sleep(_MIN_REQUEST_GAP - elapsed)
+        _last_request_time = time.time()
+
+
+# Simple in-memory cache: {key: (timestamp, data)}
+_cache = {}
+_CACHE_TTL = 3600  # 1 hour
+
+
+def _cache_get(key):
+    """Get from cache if not expired."""
+    if key in _cache:
+        ts, data = _cache[key]
+        if time.time() - ts < _CACHE_TTL:
+            return data
+        del _cache[key]
+    return None
+
+
+def _cache_set(key, data):
+    """Store in cache."""
+    _cache[key] = (time.time(), data)
 
 
 def _retry(fn, retries=3):
@@ -39,7 +53,7 @@ def _retry(fn, retries=3):
         except Exception as e:
             last_err = e
             if attempt < retries - 1:
-                time.sleep(2 + attempt * 4)  # 2s, 6s, 10s
+                time.sleep(3 + attempt * 5)  # 3s, 8s, 13s
     raise last_err
 
 
@@ -72,8 +86,14 @@ def _df_to_dict(df: pd.DataFrame) -> dict:
 
 
 def get_company_info(ticker: str) -> dict:
+    cache_key = f"info:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
     def _fetch():
-        t = yf.Ticker(ticker, session=_session)
+        _rate_limit()
+        t = yf.Ticker(ticker)
         info = t.info or {}
         return {
             "ticker": ticker.upper(),
@@ -94,22 +114,40 @@ def get_company_info(ticker: str) -> dict:
             "fifty_two_week_low": _safe_val(info.get("fiftyTwoWeekLow")),
             "description": info.get("longBusinessSummary", ""),
         }
-    return _retry(_fetch)
+
+    result = _retry(_fetch)
+    _cache_set(cache_key, result)
+    return result
 
 
 def get_financials(ticker: str) -> dict:
+    cache_key = f"financials:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
     def _fetch():
-        t = yf.Ticker(ticker, session=_session)
+        _rate_limit()
+        t = yf.Ticker(ticker)
         return {
             "income_statement": _df_to_dict(t.financials),
             "balance_sheet": _df_to_dict(t.balance_sheet),
             "cash_flow": _df_to_dict(t.cashflow),
         }
-    return _retry(_fetch)
+
+    result = _retry(_fetch)
+    _cache_set(cache_key, result)
+    return result
 
 
 def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
-    t = yf.Ticker(ticker, session=_session)
+    cache_key = f"prices:{ticker}:{period}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    _rate_limit()
+    t = yf.Ticker(ticker)
     hist = t.history(period=period)
     if hist.empty:
         return []
@@ -123,16 +161,23 @@ def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
             "close": _safe_val(row.get("Close")),
             "volume": _safe_val(row.get("Volume")),
         })
+    _cache_set(cache_key, records)
     return records
 
 
 def get_risk_free_rate() -> float:
     """Fetch 10-Year Treasury yield as risk-free rate proxy."""
+    cached = _cache_get("risk_free_rate")
+    if cached:
+        return cached
     try:
-        tnx = yf.Ticker("^TNX", session=_session)
+        _rate_limit()
+        tnx = yf.Ticker("^TNX")
         hist = tnx.history(period="5d")
         if not hist.empty:
-            return float(hist["Close"].iloc[-1]) / 100.0
+            rate = float(hist["Close"].iloc[-1]) / 100.0
+            _cache_set("risk_free_rate", rate)
+            return rate
     except Exception:
         pass
     return 0.043  # fallback
@@ -140,8 +185,8 @@ def get_risk_free_rate() -> float:
 
 def get_peer_tickers(ticker: str, max_peers: int = 5) -> list[str]:
     """Find peer companies in the same sector/industry."""
-    t = yf.Ticker(ticker, session=_session)
-    info = t.info or {}
+    # This reuses get_company_info which is cached
+    info = get_company_info(ticker)
     sector = info.get("sector", "")
 
     # Use a curated mapping for common sectors as yfinance doesn't have a peer API
@@ -170,7 +215,8 @@ def get_peer_data(tickers: list[str]) -> list[dict]:
     results = []
     for t in tickers:
         try:
-            info = yf.Ticker(t, session=_session).info or {}
+            _rate_limit()
+            info = yf.Ticker(t).info or {}
             results.append({
                 "ticker": t,
                 "name": info.get("longName") or info.get("shortName", t),
@@ -186,7 +232,6 @@ def get_peer_data(tickers: list[str]) -> list[dict]:
                 "revenue": _safe_val(info.get("totalRevenue")),
                 "ebitda": _safe_val(info.get("ebitda")),
             })
-            time.sleep(1)  # gentle delay between peer fetches
         except Exception:
             continue
     return results
