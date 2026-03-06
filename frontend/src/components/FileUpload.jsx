@@ -10,7 +10,12 @@ export default function FileUpload({ onUpload, loading }) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] },
+    accept: {
+      'text/csv': ['.csv'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/pdf': ['.pdf'],
+    },
     maxFiles: 1,
     disabled: loading,
   })
@@ -31,13 +36,13 @@ export default function FileUpload({ onUpload, loading }) {
           </svg>
         </div>
         {isDragActive ? (
-          <p className="text-primary-600 font-medium">Drop your PDF here</p>
+          <p className="text-primary-600 font-medium">Drop your file here</p>
         ) : (
           <>
             <p className="text-gray-700 font-medium">
-              Drag & drop an Annual Report PDF here
+              Drag & drop financials (Excel, CSV, or PDF)
             </p>
-            <p className="text-gray-400 text-sm">or click to browse files</p>
+            <p className="text-gray-400 text-sm">Supports screener.in exports, or any financial spreadsheet</p>
           </>
         )}
       </div>

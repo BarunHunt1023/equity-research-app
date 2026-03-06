@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAnalysisDispatch } from '../context/AnalysisContext'
-import { analyzeCompany, uploadPDF } from '../api/client'
+import { analyzeCompany, uploadFinancials } from '../api/client'
 import FileUpload from '../components/FileUpload'
 import LoadingSpinner from '../components/LoadingSpinner'
 
@@ -15,7 +15,7 @@ function MetricBadge({ label }) {
 
 export default function HomePage() {
   const [ticker, setTicker] = useState('')
-  const [mode, setMode] = useState('live') // 'live' | 'upload'
+  const [mode, setMode] = useState('upload') // default to upload since yfinance is broken
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const dispatch = useAnalysisDispatch()
@@ -44,15 +44,12 @@ export default function HomePage() {
     setLoading(true)
     setError('')
     try {
-      const data = await uploadPDF(file)
-      dispatch({ type: 'SET_UPLOADED_DATA', payload: data })
-      // Also set ticker from PDF metadata if available
-      if (data.metadata?.possible_company_name) {
-        dispatch({ type: 'SET_TICKER', payload: data.metadata.possible_company_name })
-      }
+      const data = await uploadFinancials(file, ticker.trim().toUpperCase() || undefined)
+      dispatch({ type: 'SET_ANALYSIS', payload: data })
+      dispatch({ type: 'SET_TICKER', payload: data.company_info?.ticker || ticker.trim().toUpperCase() || 'UPLOADED' })
       navigate('/financials')
     } catch (e) {
-      const msg = e.response?.data?.detail || 'Failed to parse PDF'
+      const msg = e.response?.data?.detail || 'Failed to parse file'
       setError(msg)
     } finally {
       setLoading(false)
@@ -82,7 +79,7 @@ export default function HomePage() {
       {/* Mode toggle */}
       <div className="card mb-6">
         <div className="flex rounded-lg bg-gray-100 p-1 mb-6">
-          {[['live', 'Live Yahoo Finance Data'], ['upload', 'Upload Annual Report (PDF)']].map(([m, label]) => (
+          {[['upload', 'Upload Financials (Excel/CSV)'], ['live', 'Live Yahoo Finance Data']].map(([m, label]) => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -124,9 +121,20 @@ export default function HomePage() {
           </div>
         ) : (
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Stock Ticker / Company Name
+            </label>
+            <input
+              type="text"
+              value={ticker}
+              onChange={(e) => setTicker(e.target.value.toUpperCase())}
+              placeholder="e.g. RELIANCE, TCS, INFY"
+              className="input-field text-lg font-mono mb-4"
+              disabled={loading}
+            />
             <FileUpload onUpload={handleUpload} loading={loading} />
             <p className="text-xs text-gray-400 mt-3 text-center">
-              Upload your company's Annual Report, 10-K, or any financial statement PDF
+              Download financials from screener.in and upload the Excel/CSV file here
             </p>
           </div>
         )}
@@ -142,7 +150,7 @@ export default function HomePage() {
         <LoadingSpinner message={
           mode === 'live'
             ? `Fetching data for ${ticker}...`
-            : 'Parsing PDF...'
+            : 'Parsing financials...'
         } />
       )}
 

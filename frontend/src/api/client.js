@@ -30,14 +30,20 @@ export async function generateReport(ticker, params = {}) {
   return data
 }
 
-export async function uploadPDF(file) {
+export async function uploadFinancials(file, ticker = '') {
   const formData = new FormData()
   formData.append('file', file)
+  if (ticker) {
+    formData.append('ticker', ticker)
+  }
   const { data } = await api.post('/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
   return data
 }
+
+// Keep old name as alias for backward compat
+export const uploadPDF = uploadFinancials
 
 export async function getPeers(ticker) {
   const { data } = await api.get(`/peers/${ticker}`)
