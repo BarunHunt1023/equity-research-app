@@ -11,15 +11,19 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-/**
- * Formats a numeric value into a human-readable string with B/M/K suffixes.
- * @param {number} value - The raw numeric value.
- * @returns {string} Formatted string (e.g., "12.3B", "450M", "1.2K").
- */
-const formatLargeNumber = (value) => {
+const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' };
+
+const formatLargeNumber = (value, currency, unit) => {
   if (value == null || isNaN(value)) return '--';
   const absValue = Math.abs(value);
   const sign = value < 0 ? '-' : '';
+  const sym = CURRENCY_SYMBOLS[currency] || '$';
+
+  if (unit === 'Cr') {
+    if (absValue >= 100000) return `${sym}${sign}${(absValue / 100000).toFixed(1)}L Cr`;
+    if (absValue >= 1) return `${sym}${sign}${Math.round(absValue).toLocaleString('en-IN')} Cr`;
+    return `${sym}${sign}${absValue.toFixed(1)} Cr`;
+  }
 
   if (absValue >= 1e12) return `${sign}${(absValue / 1e12).toFixed(1)}T`;
   if (absValue >= 1e9) return `${sign}${(absValue / 1e9).toFixed(1)}B`;
@@ -28,52 +32,41 @@ const formatLargeNumber = (value) => {
   return `${sign}${absValue.toFixed(0)}`;
 };
 
-/**
- * Formats a value for the tooltip with full precision.
- * @param {number} value - The raw numeric value.
- * @returns {string} Formatted string with two decimal places and suffix.
- */
-const formatTooltipValue = (value) => {
+const formatTooltipValue = (value, currency, unit) => {
   if (value == null || isNaN(value)) return '--';
   const absValue = Math.abs(value);
   const sign = value < 0 ? '-' : '';
+  const sym = CURRENCY_SYMBOLS[currency] || '$';
 
-  if (absValue >= 1e12) return `$${sign}${(absValue / 1e12).toFixed(2)}T`;
-  if (absValue >= 1e9) return `$${sign}${(absValue / 1e9).toFixed(2)}B`;
-  if (absValue >= 1e6) return `$${sign}${(absValue / 1e6).toFixed(2)}M`;
-  if (absValue >= 1e3) return `$${sign}${(absValue / 1e3).toFixed(2)}K`;
-  return `$${sign}${absValue.toFixed(2)}`;
+  if (unit === 'Cr') {
+    if (absValue >= 100000) return `${sym}${sign}${(absValue / 100000).toFixed(2)}L Cr`;
+    return `${sym}${sign}${Math.round(absValue).toLocaleString('en-IN')} Cr`;
+  }
+
+  if (absValue >= 1e12) return `${sym}${sign}${(absValue / 1e12).toFixed(2)}T`;
+  if (absValue >= 1e9) return `${sym}${sign}${(absValue / 1e9).toFixed(2)}B`;
+  if (absValue >= 1e6) return `${sym}${sign}${(absValue / 1e6).toFixed(2)}M`;
+  if (absValue >= 1e3) return `${sym}${sign}${(absValue / 1e3).toFixed(2)}K`;
+  return `${sym}${sign}${absValue.toFixed(2)}`;
 };
 
-/**
- * Custom tooltip component for the Revenue & Earnings chart.
- */
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload || payload.length === 0) return null;
+const RevenueEarningsChart = ({ historicalMetrics, currency = 'USD', unit = null }) => {
+  const CustomTooltip = useMemo(() => {
+    return ({ active, payload, label }) => {
+      if (!active || !payload || payload.length === 0) return null;
+      return (
+        <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+          <p className="font-semibold text-gray-800 mb-1">{label}</p>
+          {payload.map((entry, index) => (
+            <p key={index} className="text-gray-600" style={{ color: entry.color }}>
+              {entry.name}: {formatTooltipValue(entry.value, currency, unit)}
+            </p>
+          ))}
+        </div>
+      );
+    };
+  }, [currency, unit]);
 
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
-      <p className="font-semibold text-gray-800 mb-1">{label}</p>
-      {payload.map((entry, index) => (
-        <p key={index} className="text-gray-600" style={{ color: entry.color }}>
-          {entry.name}: {formatTooltipValue(entry.value)}
-        </p>
-      ))}
-    </div>
-  );
-};
-
-/**
- * RevenueEarningsChart
- *
- * A combo bar + line chart showing Revenue (bars) and Net Income (line)
- * over historical periods.
- *
- * @param {Object} props
- * @param {Array<{period: string, revenue: number, net_income: number}>} props.historicalMetrics
- *   Array of historical data points with period label, revenue, and net income.
- */
-const RevenueEarningsChart = ({ historicalMetrics }) => {
   const chartData = useMemo(() => {
     if (!historicalMetrics || historicalMetrics.length === 0) return [];
     return historicalMetrics.map((item) => ({
@@ -110,7 +103,7 @@ const RevenueEarningsChart = ({ historicalMetrics }) => {
           />
           <YAxis
             yAxisId="left"
-            tickFormatter={(val) => `$${formatLargeNumber(val)}`}
+            tickFormatter={(val) => formatLargeNumber(val, currency, unit)}
             tick={{ fontSize: 12, fill: '#6b7280' }}
             tickLine={false}
             axisLine={{ stroke: '#d1d5db' }}
@@ -126,7 +119,7 @@ const RevenueEarningsChart = ({ historicalMetrics }) => {
           <YAxis
             yAxisId="right"
             orientation="right"
-            tickFormatter={(val) => `$${formatLargeNumber(val)}`}
+            tickFormatter={(val) => formatLargeNumber(val, currency, unit)}
             tick={{ fontSize: 12, fill: '#6b7280' }}
             tickLine={false}
             axisLine={{ stroke: '#d1d5db' }}

@@ -6,13 +6,27 @@ import RevenueEarningsChart from '../components/charts/RevenueEarningsChart'
 import MarginChart from '../components/charts/MarginChart'
 import StockPriceChart from '../components/charts/StockPriceChart'
 
-function fmt(v, decimals = 1) {
+const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' }
+
+function getCurrencySymbol(currency) {
+  return CURRENCY_SYMBOLS[currency] || currency || '$'
+}
+
+function fmt(v, currency = 'USD', unit = null, decimals = 1) {
   if (v == null) return '—'
+  const sym = getCurrencySymbol(currency)
+  if (unit === 'Cr') {
+    // Values already in crores
+    const abs = Math.abs(v)
+    if (abs >= 100000) return `${sym}${(v / 100000).toFixed(decimals)}L Cr`
+    if (abs >= 1) return `${sym}${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })} Cr`
+    return `${sym}${v.toFixed(2)} Cr`
+  }
   const abs = Math.abs(v)
-  if (abs >= 1e12) return `$${(v / 1e12).toFixed(decimals)}T`
-  if (abs >= 1e9) return `$${(v / 1e9).toFixed(decimals)}B`
-  if (abs >= 1e6) return `$${(v / 1e6).toFixed(decimals)}M`
-  return `$${v.toFixed(2)}`
+  if (abs >= 1e12) return `${sym}${(v / 1e12).toFixed(decimals)}T`
+  if (abs >= 1e9) return `${sym}${(v / 1e9).toFixed(decimals)}B`
+  if (abs >= 1e6) return `${sym}${(v / 1e6).toFixed(decimals)}M`
+  return `${sym}${v.toFixed(2)}`
 }
 function pct(v) { return v != null ? `${(v * 100).toFixed(1)}%` : '—' }
 
@@ -47,6 +61,11 @@ export default function FinancialsPage() {
   const solv = ratios?.solvency || {}
   const raw = ratios?.raw_values || {}
 
+  const currency = companyInfo?.currency || 'USD'
+  const unit = companyInfo?.unit || null
+  const sym = getCurrencySymbol(currency)
+  const f = (v) => fmt(v, currency, unit)
+
   const stmtMap = {
     'Income Statement': financials?.income_statement,
     'Balance Sheet': financials?.balance_sheet,
@@ -72,10 +91,12 @@ export default function FinancialsPage() {
               )}
             </div>
             <div className="text-right flex-shrink-0">
-              <p className="text-3xl font-bold text-gray-900">${companyInfo.current_price?.toFixed(2)}</p>
-              <p className="text-sm text-gray-400">{companyInfo.currency}</p>
+              {companyInfo.current_price != null && (
+                <p className="text-3xl font-bold text-gray-900">{sym}{companyInfo.current_price?.toFixed(2)}</p>
+              )}
+              <p className="text-sm text-gray-400">{currency}</p>
               <p className="text-sm text-gray-500 mt-1">
-                Mkt Cap: {fmt(companyInfo.market_cap)} · Beta: {companyInfo.beta?.toFixed(2) ?? '—'}
+                Mkt Cap: {f(companyInfo.market_cap)} · Beta: {companyInfo.beta?.toFixed(2) ?? '—'}
               </p>
             </div>
           </div>
@@ -87,9 +108,9 @@ export default function FinancialsPage() {
         <div>
           <h2 className="section-title">Key Metrics</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <KPICard label="Revenue" value={fmt(raw.revenue)} />
-            <KPICard label="EBITDA" value={fmt(raw.ebitda)} sub={`${pct(prof.ebitda_margin)} margin`} />
-            <KPICard label="Net Income" value={fmt(raw.net_income)} sub={`${pct(prof.net_margin)} margin`} />
+            <KPICard label="Revenue" value={f(raw.revenue)} />
+            <KPICard label="EBITDA" value={f(raw.ebitda)} sub={`${pct(prof.ebitda_margin)} margin`} />
+            <KPICard label="Net Income" value={f(raw.net_income)} sub={`${pct(prof.net_margin)} margin`} />
             <KPICard label="ROE" value={pct(prof.roe)} color={prof.roe > 0.15 ? 'text-emerald-600' : 'text-gray-900'} />
             <KPICard label="D/E Ratio" value={solv.debt_to_equity?.toFixed(2) ?? '—'} />
             <KPICard label="Current Ratio" value={liq.current_ratio?.toFixed(2) ?? '—'} color={liq.current_ratio > 1.5 ? 'text-emerald-600' : 'text-amber-600'} />
@@ -101,7 +122,7 @@ export default function FinancialsPage() {
       {historicalMetrics?.length > 0 && (
         <div className="card">
           <h2 className="section-title">Revenue & Net Income</h2>
-          <RevenueEarningsChart historicalMetrics={historicalMetrics} />
+          <RevenueEarningsChart historicalMetrics={historicalMetrics} currency={currency} unit={unit} />
         </div>
       )}
 
@@ -126,7 +147,7 @@ export default function FinancialsPage() {
             </button>
           ))}
         </div>
-        <FinancialTable data={stmtMap[tab]} />
+        <FinancialTable data={stmtMap[tab]} currency={currency} unit={unit} />
       </div>
 
       {/* Ratios detail */}
@@ -159,7 +180,7 @@ export default function FinancialsPage() {
                 ['Debt / Equity', solv.debt_to_equity?.toFixed(2)],
                 ['Debt / Assets', pct(solv.debt_to_assets)],
                 ['Interest Coverage', solv.interest_coverage ? `${solv.interest_coverage.toFixed(1)}x` : '—'],
-                ['Net Debt', fmt(solv.net_debt)],
+                ['Net Debt', f(solv.net_debt)],
               ],
             },
             {
@@ -167,8 +188,8 @@ export default function FinancialsPage() {
               rows: [
                 ['Trailing P/E', companyInfo?.trailing_pe?.toFixed(1)],
                 ['Forward P/E', companyInfo?.forward_pe?.toFixed(1)],
-                ['52W High', companyInfo?.fifty_two_week_high ? `$${companyInfo.fifty_two_week_high.toFixed(2)}` : '—'],
-                ['52W Low', companyInfo?.fifty_two_week_low ? `$${companyInfo.fifty_two_week_low.toFixed(2)}` : '—'],
+                ['52W High', companyInfo?.fifty_two_week_high ? `${sym}${companyInfo.fifty_two_week_high.toFixed(2)}` : '—'],
+                ['52W Low', companyInfo?.fifty_two_week_low ? `${sym}${companyInfo.fifty_two_week_low.toFixed(2)}` : '—'],
                 ['Dividend Yield', pct(companyInfo?.dividend_yield)],
               ],
             },

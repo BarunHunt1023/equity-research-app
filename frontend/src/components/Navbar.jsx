@@ -1,6 +1,8 @@
 import { NavLink } from 'react-router-dom'
 import { useAnalysis } from '../context/AnalysisContext'
 
+const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' }
+
 const links = [
   { to: '/', label: 'Home' },
   { to: '/financials', label: 'Financials' },
@@ -11,6 +13,7 @@ const links = [
 
 export default function Navbar() {
   const { companyInfo } = useAnalysis()
+  const sym = CURRENCY_SYMBOLS[companyInfo?.currency] || '$'
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -44,9 +47,11 @@ export default function Navbar() {
               <span className="text-sm font-medium text-gray-900">
                 {companyInfo.ticker}
               </span>
-              <span className="text-sm text-gray-500">
-                ${companyInfo.current_price?.toFixed(2)}
-              </span>
+              {companyInfo.current_price != null && (
+                <span className="text-sm text-gray-500">
+                  {sym}{companyInfo.current_price?.toFixed(2)}
+                </span>
+              )}
             </div>
           )}
         </div>

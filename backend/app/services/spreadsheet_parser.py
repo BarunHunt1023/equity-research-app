@@ -31,6 +31,8 @@ FIELD_MAP = {
     "EPS": "Basic EPS",
     "EPS in Rs": "Basic EPS",
     "Gross Profit": "Gross Profit",
+    "Raw Material Cost": "Cost Of Revenue",
+    "Material Cost": "Cost Of Revenue",
 
     # Balance Sheet
     "Equity Share Capital": "Common Stock",
@@ -45,11 +47,14 @@ FIELD_MAP = {
     "Total": "Total Assets",
     "Total Assets": "Total Assets",
     "Fixed Assets": "Property Plant And Equipment",
+    "Net Block": "Property Plant And Equipment",
     "Property Plant And Equipment": "Property Plant And Equipment",
     "CWIP": "Capital Work In Progress",
+    "Capital Work in Progress": "Capital Work In Progress",
     "Investments": "Investments",
     "Other Assets": "Other Assets",
     "Cash and Cash Equivalents": "Cash And Cash Equivalents",
+    "Cash & Bank": "Cash And Cash Equivalents",
     "Cash & Short Term Investments": "Cash And Cash Equivalents",
     "Current Assets": "Current Assets",
     "Total Current Assets": "Current Assets",
@@ -60,6 +65,7 @@ FIELD_MAP = {
     "Inventory": "Inventory",
     "Accounts Receivable": "Net Receivables",
     "Trade Receivables": "Net Receivables",
+    "Receivables": "Net Receivables",
 
     # Cash Flow
     "Cash from Operating Activity": "Operating Cash Flow",
@@ -78,6 +84,100 @@ FIELD_MAP = {
 IS_KEYWORDS = ["revenue", "sales", "net income", "net profit", "operating profit", "ebitda", "eps", "profit before tax"]
 BS_KEYWORDS = ["total assets", "borrowings", "equity share", "reserves", "fixed assets", "current assets", "total liabilities"]
 CF_KEYWORDS = ["operating activity", "investing activity", "financing activity", "net cash flow", "capital expenditure"]
+
+# Pattern to match screener.in date headers like "Mar 2024", "Mar-24", "Mar 24", "Dec 2023"
+_DATE_PATTERN = re.compile(
+    r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s*[-/]?\s*(\d{2,4})$",
+    re.IGNORECASE,
+)
+
+# Pattern for standalone 4-digit year
+_YEAR_PATTERN = re.compile(r"^\d{4}$")
+
+
+def _normalize_period(col) -> str | None:
+    """Convert a column header to a clean year string like '2024'.
+
+    Handles: 'Mar 2024', 'Mar-24', Timestamp('2024-03-31'), 2024, 'TTM', etc.
+    Returns None for non-period columns.
+    """
+    if col is None:
+        return None
+
+    # Handle pandas Timestamp
+    if isinstance(col, (pd.Timestamp,)):
+        return str(col.year)
+
+    # Handle numeric year
+    if isinstance(col, (int, float)) and not np.isnan(col):
+        n = int(col)
+        if 1900 < n < 2100:
+            return str(n)
+        return None
+
+    s = str(col).strip()
+    if not s or s.lower() == "nan":
+        return None
+
+    # Skip TTM column
+    if s.upper() == "TTM":
+        return "TTM"
+
+    # Match "Mar 2024", "Mar-24" etc.
+    m = _DATE_PATTERN.match(s)
+    if m:
+        year_str = m.group(2)
+        if len(year_str) == 2:
+            year = int(year_str)
+            year = year + 2000 if year < 50 else year + 1900
+        else:
+            year = int(year_str)
+        return str(year)
+
+    # Match standalone year "2024"
+    if _YEAR_PATTERN.match(s):
+        return s
+
+    # Try parsing as a date string
+    try:
+        dt = pd.to_datetime(s)
+        if dt.year > 1900:
+            return str(dt.year)
+    except (ValueError, TypeError):
+        pass
+
+    return None
+
+
+def _is_date_row(row_values) -> bool:
+    """Check if a row contains mostly date-like values (potential header row)."""
+    date_count = 0
+    total = 0
+    for val in row_values:
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            continue
+        s = str(val).strip()
+        if not s:
+            continue
+        total += 1
+        if _normalize_period(val) is not None:
+            date_count += 1
+    return date_count >= 2 and date_count >= total * 0.5
+
+
+def _find_header_row(df_raw: pd.DataFrame) -> int:
+    """Find the row index that contains date headers in a screener.in sheet.
+
+    Returns the row index (0-based), or -1 if no date header row found.
+    """
+    # Check first 5 rows for date-like content
+    for i in range(min(5, len(df_raw))):
+        row = df_raw.iloc[i]
+        # Skip first cell (might be label like "Report Date" or empty)
+        values = row.iloc[1:] if len(row) > 1 else row
+        if _is_date_row(values):
+            return i
+    return -1
 
 
 def _parse_number(val) -> float | None:
@@ -136,16 +236,12 @@ def _df_to_financials(df: pd.DataFrame, statement_type: str = None) -> tuple[str
     if df is None or df.empty:
         return statement_type or "unknown", {}
 
-    # First column is line item labels, rest are period columns
     df = df.copy()
 
     # If first column looks like labels (mostly strings), use it as index
     first_col = df.iloc[:, 0]
     if first_col.dtype == object:
         df = df.set_index(df.columns[0])
-    else:
-        # Already has proper index
-        pass
 
     # Auto-classify if not specified
     if not statement_type:
@@ -155,10 +251,24 @@ def _df_to_financials(df: pd.DataFrame, statement_type: str = None) -> tuple[str
     # Build {period: {mapped_line_item: value}} dict
     result = {}
     for col in df.columns:
-        period = str(col).strip()
-        # Skip percentage columns (OPM%, Tax%, etc.)
-        if "%" in period:
+        # Normalize column to a clean period string
+        period = _normalize_period(col)
+        if period is None:
+            # Fallback: use raw string but skip "Unnamed:" columns
+            raw = str(col).strip()
+            if raw.startswith("Unnamed") or raw.lower() == "nan" or not raw:
+                continue
+            # Skip percentage columns
+            if "%" in raw:
+                continue
+            period = raw
+        elif period == "TTM":
+            continue  # Skip TTM column
+
+        # Skip percentage columns
+        if "%" in str(col):
             continue
+
         period_data = {}
         for idx in df.index:
             label = str(idx).strip()
@@ -192,12 +302,50 @@ def _match_sheet_type(sheet_name: str) -> str | None:
     return None
 
 
+def _read_sheet_with_header_detection(filepath: str, sheet_name: str) -> pd.DataFrame:
+    """Read an Excel sheet, detecting the correct header row for screener.in format.
+
+    Screener.in exports often have the company name in row 0 and actual date
+    headers in row 1 or later. This function finds the date header row and
+    uses it properly.
+    """
+    # First read without headers to inspect raw data
+    df_raw = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+    if df_raw.empty:
+        return df_raw
+
+    # Check if row 0 columns already look like dates (normal format)
+    row0_values = df_raw.iloc[0, 1:] if len(df_raw.columns) > 1 else df_raw.iloc[0]
+    if _is_date_row(row0_values):
+        # Row 0 is the header - read normally
+        df = pd.read_excel(filepath, sheet_name=sheet_name, header=0)
+        return df
+
+    # Look for the actual header row in subsequent rows
+    header_row = _find_header_row(df_raw)
+    if header_row >= 0:
+        # Re-read with correct header row
+        df = pd.read_excel(filepath, sheet_name=sheet_name, header=header_row)
+        return df
+
+    # Fallback: check if column names from header=0 look like dates
+    df = pd.read_excel(filepath, sheet_name=sheet_name, header=0)
+    col_dates = sum(1 for c in df.columns[1:] if _normalize_period(c) is not None)
+    if col_dates >= 2:
+        return df
+
+    # Last resort: just use header=0
+    return df
+
+
 def parse_excel(filepath: str) -> dict:
     """Parse an Excel file with financial data (screener.in or generic format).
 
     Returns {income_statement: {...}, balance_sheet: {...}, cash_flow: {...}}.
     """
-    sheets = pd.read_excel(filepath, sheet_name=None, header=0)
+    # Get sheet names first
+    xl = pd.ExcelFile(filepath)
+    sheet_names = xl.sheet_names
 
     financials = {
         "income_statement": {},
@@ -205,12 +353,14 @@ def parse_excel(filepath: str) -> dict:
         "cash_flow": {},
     }
 
-    for sheet_name, df in sheets.items():
+    for sheet_name in sheet_names:
         # Skip metadata/customization sheets
         lower_name = sheet_name.lower().strip()
         if lower_name in ("data sheet", "customization", "quarters", "data"):
             continue
-        if df.empty:
+
+        df = _read_sheet_with_header_detection(filepath, sheet_name)
+        if df is None or df.empty:
             continue
 
         # Try to match by sheet name first
@@ -223,10 +373,36 @@ def parse_excel(filepath: str) -> dict:
             financials[classified_type].update(parsed)
 
     # If only "Data Sheet" exists (some screener.in exports), try to parse it
-    if all(not v for v in financials.values()) and "Data Sheet" in sheets:
-        _parse_data_sheet(sheets["Data Sheet"], financials)
+    if all(not v for v in financials.values()) and "Data Sheet" in sheet_names:
+        _parse_data_sheet_from_file(filepath, financials)
+
+    # Post-process: compute derived fields if missing
+    _compute_derived_fields(financials)
 
     return financials
+
+
+def _parse_data_sheet_from_file(filepath: str, financials: dict):
+    """Parse screener.in's combined 'Data Sheet' with proper header detection."""
+    df_raw = pd.read_excel(filepath, sheet_name="Data Sheet", header=None)
+    if df_raw.empty:
+        return
+
+    # Find the date header row
+    header_row = _find_header_row(df_raw)
+    if header_row >= 0:
+        # Build period labels from the header row
+        period_labels = []
+        for val in df_raw.iloc[header_row]:
+            period_labels.append(_normalize_period(val))
+
+        # Read data starting after the header row
+        df = pd.read_excel(filepath, sheet_name="Data Sheet", header=header_row)
+    else:
+        # Fallback: read with header=0
+        df = pd.read_excel(filepath, sheet_name="Data Sheet", header=0)
+
+    _parse_data_sheet(df, financials)
 
 
 def _parse_data_sheet(df: pd.DataFrame, financials: dict):
@@ -275,6 +451,39 @@ def _flush_section(section: str, rows: list, columns, financials: dict):
     _, parsed = _df_to_financials(section_df, section)
     if parsed:
         financials[section].update(parsed)
+
+
+def _compute_derived_fields(financials: dict):
+    """Compute derived financial fields that screener.in doesn't provide directly.
+
+    For example: Stockholders Equity = Common Stock + Retained Earnings,
+    Total Assets from components, etc.
+    """
+    bs = financials.get("balance_sheet", {})
+    is_data = financials.get("income_statement", {})
+
+    for period, data in bs.items():
+        # Compute Stockholders Equity if not present
+        if "Stockholders Equity" not in data:
+            common = data.get("Common Stock")
+            retained = data.get("Retained Earnings")
+            if common is not None and retained is not None:
+                data["Stockholders Equity"] = common + retained
+
+    for period, data in is_data.items():
+        # Compute Gross Profit if we have Revenue and COGS
+        if "Gross Profit" not in data:
+            revenue = data.get("Total Revenue")
+            cogs = data.get("Cost Of Revenue")
+            if revenue is not None and cogs is not None:
+                data["Gross Profit"] = revenue - abs(cogs)
+
+        # Compute EBITDA if we have Operating Income and D&A
+        if "EBITDA" not in data:
+            op_income = data.get("Operating Income")
+            da = data.get("Depreciation And Amortization")
+            if op_income is not None and da is not None:
+                data["EBITDA"] = op_income + abs(da)
 
 
 def parse_csv(filepath: str) -> dict:

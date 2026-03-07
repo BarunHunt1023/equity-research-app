@@ -63,6 +63,7 @@ async def upload_file(
             "enterprise_value": None,
             "current_price": None,
             "currency": "INR",
+            "unit": "Cr",
             "shares_outstanding": None,
             "beta": None,
             "trailing_pe": None,
