@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage'
 import FinancialsPage from './pages/FinancialsPage'
 import ForecastPage from './pages/ForecastPage'
 import ValuationPage from './pages/ValuationPage'
+import OnePagerPage from './pages/OnePagerPage'
 import ReportPage from './pages/ReportPage'
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
           <Route path="/financials" element={<FinancialsPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/valuation" element={<ValuationPage />} />
+          <Route path="/one-pager" element={<OnePagerPage />} />
           <Route path="/report" element={<ReportPage />} />
         </Routes>
       </main>
