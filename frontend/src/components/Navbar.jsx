@@ -8,6 +8,7 @@ const links = [
   { to: '/financials', label: 'Financials' },
   { to: '/forecast', label: 'Forecast' },
   { to: '/valuation', label: 'Valuation' },
+  { to: '/one-pager', label: 'One Pager' },
   { to: '/report', label: 'Report' },
 ]
 
