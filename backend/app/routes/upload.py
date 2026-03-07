@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
@@ -6,6 +7,8 @@ from app.config import UPLOAD_DIR
 from app.services.pdf_parser import parse_pdf
 from app.services.spreadsheet_parser import parse_excel, parse_csv
 from app.services import financial_analysis
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -47,9 +50,23 @@ async def upload_file(
         else:  # .xlsx, .xls
             financials = parse_excel(filepath)
 
+        # Log parsed financial structure for debugging
+        for stmt_type, stmt_data in financials.items():
+            if stmt_data:
+                logger.info("Parsed %s: periods=%s", stmt_type, list(stmt_data.keys()))
+                for period, items in stmt_data.items():
+                    logger.info("  %s: fields=%s", period, list(items.keys()))
+            else:
+                logger.info("Parsed %s: empty", stmt_type)
+
         # Compute ratios and historical metrics
         ratios = financial_analysis.compute_ratios(financials)
         historical = financial_analysis.compute_historical_metrics(financials)
+        logger.info("Computed %d historical metric periods", len(historical))
+        logger.info("Ratios raw_values: revenue=%s, net_income=%s, ebitda=%s",
+                     ratios.get("raw_values", {}).get("revenue"),
+                     ratios.get("raw_values", {}).get("net_income"),
+                     ratios.get("raw_values", {}).get("ebitda"))
 
         # Build company_info stub
         ticker_str = (ticker or "UPLOADED").upper().strip()
