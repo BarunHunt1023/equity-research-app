@@ -1,6 +1,7 @@
 import logging
 import os
 import uuid
+import traceback
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional
 from app.config import UPLOAD_DIR
@@ -101,8 +102,80 @@ async def upload_file(
         }
 
     except Exception as e:
+        logger.error("Failed to parse file %s: %s\n%s", file.filename, str(e), traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to parse file: {str(e)}")
     finally:
         # Clean up uploaded file
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+@router.post("/upload/debug")
+async def upload_file_debug(
+    file: UploadFile = File(...),
+):
+    """Debug endpoint: upload a file and return raw parsing results with diagnostics."""
+    import pandas as pd
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type")
+
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, safe_name)
+
+    content = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    try:
+        debug_info = {"filename": file.filename, "size_bytes": len(content)}
+
+        if ext in (".xlsx", ".xls"):
+            xl = pd.ExcelFile(filepath)
+            debug_info["sheets"] = xl.sheet_names
+
+            # Read raw data from each sheet (first 5 rows)
+            sheet_previews = {}
+            for sheet_name in xl.sheet_names:
+                df_raw = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+                preview = []
+                for i in range(min(5, len(df_raw))):
+                    row_data = []
+                    for val in df_raw.iloc[i]:
+                        if pd.isna(val):
+                            row_data.append(None)
+                        else:
+                            row_data.append(str(val))
+                    preview.append(row_data)
+                sheet_previews[sheet_name] = {
+                    "shape": list(df_raw.shape),
+                    "first_rows": preview,
+                }
+            debug_info["sheet_previews"] = sheet_previews
+
+            # Parse and show results
+            financials = parse_excel(filepath)
+            debug_info["parsed"] = {}
+            for stmt_type, stmt_data in financials.items():
+                if stmt_data:
+                    debug_info["parsed"][stmt_type] = {
+                        "periods": list(stmt_data.keys()),
+                        "fields_per_period": {
+                            period: list(items.keys())
+                            for period, items in stmt_data.items()
+                        },
+                    }
+                else:
+                    debug_info["parsed"][stmt_type] = "EMPTY"
+
+            ratios = financial_analysis.compute_ratios(financials)
+            debug_info["raw_values"] = ratios.get("raw_values", {})
+
+        return debug_info
+
+    except Exception as e:
+        return {"error": str(e), "traceback": traceback.format_exc()}
+    finally:
         if os.path.exists(filepath):
             os.remove(filepath)
