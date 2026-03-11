@@ -122,6 +122,41 @@ _FIELD_MAP_RAW = {
     "Net Cash Flow": "Net Cash Flow",
     "Capital Expenditure": "Capital Expenditure",
     "Free Cash Flow": "Free Cash Flow",
+
+    # Additional screener.in variants
+    "Profit before tax": "Pretax Income",
+    "Profit Before Taxes": "Pretax Income",
+    "Income Before Tax": "Pretax Income",
+    "Pre-tax Profit": "Pretax Income",
+    "Employee Cost": "Employee Cost",
+    "Employee Benefit Expense": "Employee Cost",
+    "Other Expenses": "Other Expenses",
+    "Selling and Admin Expenses": "Other Expenses",
+    "Total Income": "Total Revenue",
+    "Net Revenue": "Total Revenue",
+    "Total Revenue from Operations": "Total Revenue",
+    "Cost of Materials Consumed": "Cost Of Revenue",
+    "Purchase of Stock-in-Trade": "Purchase of Stock-in-Trade",
+    "Changes in Inventories": "Changes in Inventories",
+    "Manufacturing Expenses": "Manufacturing Expenses",
+    "Power and Fuel Cost": "Power and Fuel Cost",
+    "Rent": "Rent",
+    "Exceptional Items": "Exceptional Items",
+    "Prior Period Items": "Prior Period Items",
+    "Extra-ordinary Items": "Extraordinary Items",
+    "Minority Interest": "Minority Interest",
+    "Net Block": "Property Plant And Equipment",
+    "Tangible Assets": "Property Plant And Equipment",
+    "Intangible Assets": "Intangible Assets",
+    "Total Non Current Assets": "Total Non Current Assets",
+    "Total Non Current Liabilities": "Total Non Current Liabilities",
+    "Long Term Provisions": "Long Term Provisions",
+    "Short Term Provisions": "Short Term Provisions",
+    "Short Term Loans and Advances": "Short Term Loans",
+    "Long Term Loans and Advances": "Long Term Loans",
+    "Contingent Liabilities": "Contingent Liabilities",
+    "Book Value": "Book Value",
+    "Face Value": "Face Value",
 }
 
 # Build case-insensitive lookup: normalized_key → mapped_value
@@ -487,10 +522,41 @@ def _read_sheet_with_header_detection(filepath: str, sheet_name: str) -> pd.Data
     return df
 
 
+def _has_sufficient_data(financials: dict) -> bool:
+    """Check if parsed financials have meaningful data across statement types."""
+    has_is = bool(financials.get("income_statement"))
+    has_bs = bool(financials.get("balance_sheet"))
+    # Need at least income_statement data for the app to be useful
+    if not has_is:
+        return False
+    # Check that income_statement has real numeric values (not just empty periods)
+    for period_data in financials["income_statement"].values():
+        if any(k in period_data for k in ("Total Revenue", "Net Income", "Operating Income")):
+            return True
+    return False
+
+
+def _count_fields(financials: dict) -> int:
+    """Count total unique fields across all statement types and periods."""
+    count = 0
+    for stmt_data in financials.values():
+        for period_data in stmt_data.values():
+            count += len(period_data)
+    return count
+
+
 def parse_excel(filepath: str) -> dict:
     """Parse an Excel file with financial data (screener.in or generic format).
 
     Returns {income_statement: {...}, balance_sheet: {...}, cash_flow: {...}}.
+
+    Strategy for screener.in files:
+    - The "Data Sheet" contains raw financial data (actual numbers)
+    - "Profit & Loss", "Balance Sheet", "Cash Flow" sheets often contain FORMULAS
+      referencing the Data Sheet. If the file was generated server-side without
+      formula evaluation, these cells may read as None.
+    - We parse the Data Sheet FIRST (primary source), then supplement with
+      data from named sheets if they have cached formula values.
     """
     # Get sheet names first
     xl = pd.ExcelFile(filepath)
@@ -503,9 +569,31 @@ def parse_excel(filepath: str) -> dict:
         "cash_flow": {},
     }
 
+    # Step 1: Parse "Data Sheet" first if present (screener.in primary data source)
+    data_sheet_name = None
+    for sn in sheet_names:
+        if sn.lower().strip() in ("data sheet", "data"):
+            data_sheet_name = sn
+            break
+
+    if data_sheet_name:
+        logger.info("Parsing Data Sheet '%s' first (primary data source)", data_sheet_name)
+        _parse_data_sheet_from_file(filepath, financials, sheet_name=data_sheet_name)
+        logger.info("After Data Sheet: IS=%d periods, BS=%d periods, CF=%d periods",
+                     len(financials["income_statement"]),
+                     len(financials["balance_sheet"]),
+                     len(financials["cash_flow"]))
+
+    # Step 2: Parse named sheets (Profit & Loss, Balance Sheet, Cash Flow)
+    named_financials = {
+        "income_statement": {},
+        "balance_sheet": {},
+        "cash_flow": {},
+    }
+
     for sheet_name in sheet_names:
-        # Skip metadata/customization sheets
         lower_name = sheet_name.lower().strip()
+        # Skip non-financial sheets
         if lower_name in ("data sheet", "customization", "quarters", "data"):
             continue
 
@@ -522,29 +610,58 @@ def parse_excel(filepath: str) -> dict:
         logger.info("Sheet '%s' → type=%s, periods=%s", sheet_name, classified_type,
                      list(parsed.keys()) if parsed else "empty")
         if parsed:
-            # Log field names for first period to help debug mapping issues
             first_period = next(iter(parsed))
             logger.info("  Fields in '%s': %s", first_period, list(parsed[first_period].keys()))
 
         if classified_type in financials and parsed:
-            financials[classified_type].update(parsed)
+            named_financials[classified_type].update(parsed)
 
-    # If only "Data Sheet" exists (some screener.in exports), try to parse it
-    if all(not v for v in financials.values()) and "Data Sheet" in sheet_names:
-        logger.info("Falling back to Data Sheet parsing")
-        _parse_data_sheet_from_file(filepath, financials)
+    # Step 3: Merge - use named sheet data to supplement Data Sheet data
+    # Named sheets may have additional computed fields or better organization
+    for stmt_type in ("income_statement", "balance_sheet", "cash_flow"):
+        ds_data = financials[stmt_type]
+        ns_data = named_financials[stmt_type]
 
-    # Also try Data Sheet if we got very little data (e.g., only entity name periods)
-    if "Data Sheet" in sheet_names:
-        has_real_periods = False
-        for stmt_data in financials.values():
-            for period_key in stmt_data:
-                if _normalize_period(period_key) is not None and period_key != "Latest":
-                    has_real_periods = True
-                    break
-        if not has_real_periods:
-            logger.info("No real date periods found, trying Data Sheet")
-            _parse_data_sheet_from_file(filepath, financials)
+        if not ds_data and ns_data:
+            # Data Sheet had nothing for this type, use named sheet data
+            financials[stmt_type] = ns_data
+        elif ds_data and ns_data:
+            # Both have data - merge, preferring Data Sheet for existing fields
+            # but adding any extra fields from named sheets
+            for period, items in ns_data.items():
+                if period not in ds_data:
+                    ds_data[period] = items
+                else:
+                    for field, value in items.items():
+                        if field not in ds_data[period]:
+                            ds_data[period][field] = value
+
+    # Step 4: If still no good data, try parsing ALL sheets as generic financials
+    if not _has_sufficient_data(financials):
+        logger.info("Insufficient data after standard parsing, trying all sheets as generic")
+        for sheet_name in sheet_names:
+            lower_name = sheet_name.lower().strip()
+            if lower_name in ("customization", "quarters"):
+                continue
+            # Skip sheets we already tried
+            if _match_sheet_type(sheet_name) is not None:
+                continue
+            if lower_name in ("data sheet", "data"):
+                continue
+
+            df = _read_sheet_with_header_detection(filepath, sheet_name)
+            if df is None or df.empty:
+                continue
+
+            classified_type, parsed = _df_to_financials(df)
+            logger.info("Generic parse '%s' → type=%s, periods=%s", sheet_name,
+                         classified_type, list(parsed.keys()) if parsed else "empty")
+            if classified_type in financials and parsed:
+                for period, items in parsed.items():
+                    if period not in financials[classified_type]:
+                        financials[classified_type][period] = items
+                    else:
+                        financials[classified_type][period].update(items)
 
     # Post-process: compute derived fields if missing
     _compute_derived_fields(financials)
@@ -555,63 +672,93 @@ def parse_excel(filepath: str) -> dict:
             logger.info("Final %s: periods=%s", stmt, list(data.keys()))
             for period, items in data.items():
                 logger.info("  %s: %s", period, list(items.keys())[:10])
+        else:
+            logger.info("Final %s: EMPTY", stmt)
 
     return financials
 
 
-def _parse_data_sheet_from_file(filepath: str, financials: dict):
-    """Parse screener.in's combined 'Data Sheet' with proper header detection."""
-    df_raw = pd.read_excel(filepath, sheet_name="Data Sheet", header=None)
+def _parse_data_sheet_from_file(filepath: str, financials: dict, sheet_name: str = "Data Sheet"):
+    """Parse screener.in's combined 'Data Sheet' with proper header detection.
+
+    The Data Sheet in screener.in exports contains raw financial data organized
+    in sections: Profit & Loss, Balance Sheet, Cash Flow. Each section has date
+    headers and line items with actual numeric values (not formulas).
+    """
+    try:
+        df_raw = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+    except Exception as e:
+        logger.warning("Failed to read sheet '%s': %s", sheet_name, e)
+        return
+
     if df_raw.empty:
         return
+
+    logger.info("Data Sheet '%s': raw shape %s", sheet_name, df_raw.shape)
+    for i in range(min(5, len(df_raw))):
+        logger.info("  Row %d: %s", i, list(df_raw.iloc[i])[:8])
 
     # Find the date header row
     header_row = _find_header_row(df_raw)
     if header_row >= 0:
-        # Build period labels from the header row
-        period_labels = []
-        for val in df_raw.iloc[header_row]:
-            period_labels.append(_normalize_period(val))
-
-        # Read data starting after the header row
-        df = pd.read_excel(filepath, sheet_name="Data Sheet", header=header_row)
+        logger.info("Data Sheet: found date header at row %d", header_row)
+        df = pd.read_excel(filepath, sheet_name=sheet_name, header=header_row)
     else:
-        # Fallback: read with header=0
-        df = pd.read_excel(filepath, sheet_name="Data Sheet", header=0)
+        # Fallback: check if row 0 has dates when read with header=0
+        df = pd.read_excel(filepath, sheet_name=sheet_name, header=0)
+        col_dates = sum(1 for c in df.columns[1:] if _normalize_period(c) is not None)
+        if col_dates < 2:
+            # Try header=1 in case row 0 is a title
+            df2 = pd.read_excel(filepath, sheet_name=sheet_name, header=1)
+            col_dates2 = sum(1 for c in df2.columns[1:] if _normalize_period(c) is not None)
+            if col_dates2 > col_dates:
+                logger.info("Data Sheet: header=1 has more dates (%d vs %d)", col_dates2, col_dates)
+                df = df2
 
     _parse_data_sheet(df, financials)
 
 
 def _parse_data_sheet(df: pd.DataFrame, financials: dict):
-    """Parse screener.in's combined 'Data Sheet' which has all statements in sections."""
+    """Parse screener.in's combined 'Data Sheet' which has all statements in sections.
+
+    The Data Sheet typically has section headers like "Profit & Loss", "Balance Sheet",
+    "Cash Flow" followed by line items. We detect these sections and parse each one
+    into the appropriate statement type.
+
+    If no section headers are found, we try to parse the entire sheet and auto-classify.
+    """
     if df.empty:
         return
 
     current_section = None
     section_rows = []
+    found_sections = False
 
     for _, row in df.iterrows():
         first_cell = _clean_text(str(row.iloc[0])) if pd.notna(row.iloc[0]) else ""
         lower = first_cell.lower()
 
         # Detect section headers
-        if any(kw in lower for kw in ["profit & loss", "profit and loss", "income statement"]):
+        if any(kw in lower for kw in ["profit & loss", "profit and loss", "income statement", "p&l"]):
             if current_section and section_rows:
                 _flush_section(current_section, section_rows, df.columns, financials)
             current_section = "income_statement"
             section_rows = []
+            found_sections = True
             continue
         elif any(kw in lower for kw in ["balance sheet"]):
             if current_section and section_rows:
                 _flush_section(current_section, section_rows, df.columns, financials)
             current_section = "balance_sheet"
             section_rows = []
+            found_sections = True
             continue
-        elif any(kw in lower for kw in ["cash flow"]):
+        elif any(kw in lower for kw in ["cash flow", "cashflow"]):
             if current_section and section_rows:
                 _flush_section(current_section, section_rows, df.columns, financials)
             current_section = "cash_flow"
             section_rows = []
+            found_sections = True
             continue
 
         if current_section and first_cell:
@@ -620,6 +767,55 @@ def _parse_data_sheet(df: pd.DataFrame, financials: dict):
     # Flush last section
     if current_section and section_rows:
         _flush_section(current_section, section_rows, df.columns, financials)
+
+    # If no section headers were found, try auto-classifying the entire sheet
+    if not found_sections:
+        logger.info("Data Sheet: no section headers found, auto-classifying entire sheet")
+        # Try to split the data by content classification
+        is_rows = []
+        bs_rows = []
+        cf_rows = []
+
+        for _, row in df.iterrows():
+            first_cell = _clean_text(str(row.iloc[0])) if pd.notna(row.iloc[0]) else ""
+            if not first_cell or first_cell.lower() in ("", "nan"):
+                continue
+            lower = first_cell.lower()
+            mapped = _map_field(first_cell)
+
+            # Classify each row individually based on its field name
+            if any(kw in lower for kw in ["revenue", "sales", "operating profit",
+                                           "net profit", "ebitda", "ebit", "eps",
+                                           "profit before tax", "profit after tax",
+                                           "interest", "depreciation", "expenses",
+                                           "other income", "tax", "pat", "pbt",
+                                           "dividend", "gross profit", "operating income"]):
+                is_rows.append(row)
+            elif any(kw in lower for kw in ["assets", "liabilities", "equity",
+                                             "borrowings", "reserves", "capital",
+                                             "share capital", "debt", "investments",
+                                             "receivables", "payables", "inventory",
+                                             "cash & bank", "net block", "fixed assets",
+                                             "cwip", "debtors", "creditors"]):
+                bs_rows.append(row)
+            elif any(kw in lower for kw in ["operating activity", "investing activity",
+                                             "financing activity", "cash from",
+                                             "net cash flow", "free cash flow",
+                                             "capital expenditure", "capex"]):
+                cf_rows.append(row)
+            else:
+                # Unmapped - try to put it in the most likely bucket
+                if any(kw in mapped.lower() for kw in ["revenue", "income", "expense", "profit", "eps"]):
+                    is_rows.append(row)
+                elif any(kw in mapped.lower() for kw in ["asset", "debt", "equity", "liability"]):
+                    bs_rows.append(row)
+
+        if is_rows:
+            _flush_section("income_statement", is_rows, df.columns, financials)
+        if bs_rows:
+            _flush_section("balance_sheet", bs_rows, df.columns, financials)
+        if cf_rows:
+            _flush_section("cash_flow", cf_rows, df.columns, financials)
 
 
 def _flush_section(section: str, rows: list, columns, financials: dict):
