@@ -62,6 +62,7 @@ _FIELD_MAP_RAW = {
     "Basic EPS": "Basic EPS",
     "Gross Profit": "Gross Profit",
     "Dividend Payout": "Dividend Payout",
+    "Dividend Amount": "Dividend Payout",
 
     # Balance Sheet
     "Equity Share Capital": "Common Stock",
@@ -132,13 +133,20 @@ _FIELD_MAP_RAW = {
     "Employee Benefit Expense": "Employee Cost",
     "Other Expenses": "Other Expenses",
     "Selling and Admin Expenses": "Other Expenses",
+    "Selling and admin": "Other Expenses",
+    "Selling and Administration Expenses": "Other Expenses",
     "Total Income": "Total Revenue",
     "Net Revenue": "Total Revenue",
     "Total Revenue from Operations": "Total Revenue",
     "Cost of Materials Consumed": "Cost Of Revenue",
     "Purchase of Stock-in-Trade": "Purchase of Stock-in-Trade",
     "Changes in Inventories": "Changes in Inventories",
+    "Change in Inventory": "Changes in Inventories",
+    "Change in Inventories": "Changes in Inventories",
     "Manufacturing Expenses": "Manufacturing Expenses",
+    "Other Mfr. Exp": "Manufacturing Expenses",
+    "Other Manufacturing Expenses": "Manufacturing Expenses",
+    "Power and Fuel": "Power and Fuel Cost",
     "Power and Fuel Cost": "Power and Fuel Cost",
     "Rent": "Rent",
     "Exceptional Items": "Exceptional Items",
@@ -299,8 +307,9 @@ def _find_header_row(df_raw: pd.DataFrame) -> int:
 
     Returns the row index (0-based), or -1 if no date header row found.
     """
-    # Check first 10 rows for date-like content (increased from 5)
-    for i in range(min(10, len(df_raw))):
+    # Check first 25 rows for date-like content
+    # Screener.in Data Sheet has META section (~10 rows) before the first date header
+    for i in range(min(25, len(df_raw))):
         row = df_raw.iloc[i]
         # Skip first cell (might be label like "Report Date" or empty)
         values = row.iloc[1:] if len(row) > 1 else row
@@ -369,8 +378,15 @@ def _is_entity_name(s: str) -> bool:
     """Check if a string looks like a company/entity name rather than a period."""
     if not s:
         return False
+    lower = s.lower().strip()
+    # Skip common column headers that are NOT entity names
+    non_entity_labels = {
+        "narration", "particulars", "report date", "date", "year", "period",
+        "trailing", "best case", "worst case", "description", "item", "items",
+    }
+    if lower in non_entity_labels:
+        return False
     # Contains "Ltd", "Inc", "Corp", "Limited" etc.
-    lower = s.lower()
     entity_markers = ["ltd", "limited", "inc", "corp", "llc", "llp", "pvt", "private", "public"]
     if any(marker in lower for marker in entity_markers):
         return True
@@ -419,6 +435,9 @@ def _df_to_financials(df: pd.DataFrame, statement_type: str = None) -> tuple[str
 
     # Build {period: {mapped_line_item: value}} dict
     result = {}
+    # Columns that should be skipped entirely (not financial periods)
+    _SKIP_COLUMNS = {"narration", "particulars", "report date", "date", "year",
+                     "period", "description", "item", "items"}
     entity_name = None
     for col in df.columns:
         # Normalize column to a clean period string
@@ -429,6 +448,9 @@ def _df_to_financials(df: pd.DataFrame, statement_type: str = None) -> tuple[str
                 continue
             # Skip percentage columns
             if "%" in raw:
+                continue
+            # Skip known non-period label columns
+            if raw.lower() in _SKIP_COLUMNS:
                 continue
             # Skip entity/company name columns
             if _is_entity_name(raw):
@@ -760,6 +782,14 @@ def _parse_data_sheet(df: pd.DataFrame, financials: dict):
             section_rows = []
             found_sections = True
             continue
+        elif any(lower.startswith(kw) for kw in ["quarter", "price", "derived"]):
+            # Skip non-financial sections (Quarters, PRICE:, DERIVED:)
+            if current_section and section_rows:
+                _flush_section(current_section, section_rows, df.columns, financials)
+            current_section = None
+            section_rows = []
+            found_sections = True
+            continue
 
         if current_section and first_cell:
             section_rows.append(row)
@@ -819,8 +849,35 @@ def _parse_data_sheet(df: pd.DataFrame, financials: dict):
 
 
 def _flush_section(section: str, rows: list, columns, financials: dict):
-    """Convert collected rows into financial data for a section."""
+    """Convert collected rows into financial data for a section.
+
+    Handles screener.in Data Sheet format where each section has its own
+    'Report Date' header row with date columns (e.g., Dec-16, Dec-17, ...).
+    When the overall sheet header detection fails (dates are past row 10),
+    the DataFrame columns are wrong. This function detects per-section
+    date header rows and uses them as proper column headers.
+    """
+    if not rows:
+        return
+
     section_df = pd.DataFrame(rows, columns=columns)
+
+    # Check if the first row is a date header row (e.g., "Report Date | Dec-16 | Dec-17 | ...")
+    # This happens in screener.in Data Sheet where the overall header detection fails
+    # because the META section pushes date headers past the search range.
+    if len(section_df) > 1:
+        first_row = section_df.iloc[0]
+        first_cell = _clean_text(str(first_row.iloc[0])) if pd.notna(first_row.iloc[0]) else ""
+        row_values = first_row.iloc[1:] if len(first_row) > 1 else first_row
+
+        if first_cell.lower() in ("report date", "date", "year", "period", "particulars") or _is_date_row(row_values):
+            # Use this row as column headers for the remaining data rows
+            new_headers = list(first_row.values)
+            data_rows = section_df.iloc[1:]
+            if data_rows.empty:
+                return
+            section_df = pd.DataFrame(data_rows.values, columns=new_headers)
+
     _, parsed = _df_to_financials(section_df, section)
     if parsed:
         financials[section].update(parsed)
