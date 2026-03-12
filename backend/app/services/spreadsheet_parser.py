@@ -307,9 +307,10 @@ def _find_header_row(df_raw: pd.DataFrame) -> int:
 
     Returns the row index (0-based), or -1 if no date header row found.
     """
-    # Check first 25 rows for date-like content
-    # Screener.in Data Sheet has META section (~10 rows) before the first date header
-    for i in range(min(25, len(df_raw))):
+    # Check first 10 rows for date-like content.
+    # Named sheets (Profit & Loss, Balance Sheet, Cash Flow) have dates in row 0 or 1.
+    # The Data Sheet uses multi-section detection instead (see _parse_data_sheet_from_file).
+    for i in range(min(10, len(df_raw))):
         row = df_raw.iloc[i]
         # Skip first cell (might be label like "Report Date" or empty)
         values = row.iloc[1:] if len(row) > 1 else row
@@ -704,8 +705,13 @@ def _parse_data_sheet_from_file(filepath: str, financials: dict, sheet_name: str
     """Parse screener.in's combined 'Data Sheet' with proper header detection.
 
     The Data Sheet in screener.in exports contains raw financial data organized
-    in sections: Profit & Loss, Balance Sheet, Cash Flow. Each section has date
-    headers and line items with actual numeric values (not formulas).
+    in sections: Profit & Loss, Balance Sheet, Cash Flow. Each section has its
+    own 'Report Date' header row with date columns and line items with actual
+    numeric values (not formulas).
+
+    For multi-section Data Sheets, we read with header=None and let
+    _parse_data_sheet + _flush_section handle per-section date headers.
+    Using a global header row would eat the first section marker.
     """
     try:
         df_raw = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
@@ -720,24 +726,44 @@ def _parse_data_sheet_from_file(filepath: str, financials: dict, sheet_name: str
     for i in range(min(5, len(df_raw))):
         logger.info("  Row %d: %s", i, list(df_raw.iloc[i])[:8])
 
-    # Find the date header row
-    header_row = _find_header_row(df_raw)
-    if header_row >= 0:
-        logger.info("Data Sheet: found date header at row %d", header_row)
-        df = pd.read_excel(filepath, sheet_name=sheet_name, header=header_row)
-    else:
-        # Fallback: check if row 0 has dates when read with header=0
-        df = pd.read_excel(filepath, sheet_name=sheet_name, header=0)
-        col_dates = sum(1 for c in df.columns[1:] if _normalize_period(c) is not None)
-        if col_dates < 2:
-            # Try header=1 in case row 0 is a title
-            df2 = pd.read_excel(filepath, sheet_name=sheet_name, header=1)
-            col_dates2 = sum(1 for c in df2.columns[1:] if _normalize_period(c) is not None)
-            if col_dates2 > col_dates:
-                logger.info("Data Sheet: header=1 has more dates (%d vs %d)", col_dates2, col_dates)
-                df = df2
+    # Check if this is a multi-section Data Sheet (screener.in format)
+    # by scanning for section markers like "Profit & Loss", "Balance Sheet", etc.
+    has_sections = False
+    section_keywords = ["profit & loss", "profit and loss", "income statement",
+                        "balance sheet", "cash flow", "cashflow"]
+    for i in range(min(30, len(df_raw))):
+        cell = str(df_raw.iloc[i, 0]).lower().strip() if pd.notna(df_raw.iloc[i, 0]) else ""
+        if any(kw in cell for kw in section_keywords):
+            has_sections = True
+            logger.info("Data Sheet: detected multi-section format (found '%s' at row %d)",
+                        df_raw.iloc[i, 0], i)
+            break
 
-    _parse_data_sheet(df, financials)
+    if has_sections:
+        # Multi-section format: read without header row.
+        # Each section has its own "Report Date" row which _flush_section
+        # will detect and use as column headers for that section's data.
+        df_raw.columns = range(len(df_raw.columns))
+        _parse_data_sheet(df_raw, financials)
+    else:
+        # Single-section or no sections: use header detection
+        header_row = _find_header_row(df_raw)
+        if header_row >= 0:
+            logger.info("Data Sheet: found date header at row %d", header_row)
+            df = pd.read_excel(filepath, sheet_name=sheet_name, header=header_row)
+        else:
+            # Fallback: check if row 0 has dates when read with header=0
+            df = pd.read_excel(filepath, sheet_name=sheet_name, header=0)
+            col_dates = sum(1 for c in df.columns[1:] if _normalize_period(c) is not None)
+            if col_dates < 2:
+                # Try header=1 in case row 0 is a title
+                df2 = pd.read_excel(filepath, sheet_name=sheet_name, header=1)
+                col_dates2 = sum(1 for c in df2.columns[1:] if _normalize_period(c) is not None)
+                if col_dates2 > col_dates:
+                    logger.info("Data Sheet: header=1 has more dates (%d vs %d)", col_dates2, col_dates)
+                    df = df2
+
+        _parse_data_sheet(df, financials)
 
 
 def _parse_data_sheet(df: pd.DataFrame, financials: dict):
@@ -911,20 +937,21 @@ def _compute_derived_fields(financials: dict):
             if revenue is not None and cogs is not None:
                 data["Gross Profit"] = revenue - abs(cogs)
 
-        # Compute EBITDA if we have Operating Income and D&A
-        if "EBITDA" not in data:
-            op_income = data.get("Operating Income")
-            da = data.get("Depreciation And Amortization")
-            if op_income is not None and da is not None:
-                data["EBITDA"] = op_income + abs(da)
-
         # Compute Operating Income from PBT + Interest if missing
+        # (must be BEFORE EBITDA so EBITDA can use the derived Operating Income)
         if "Operating Income" not in data:
             pbt = data.get("Pretax Income")
             interest = data.get("Interest Expense")
             other_income = data.get("Other Income", 0)
             if pbt is not None and interest is not None:
                 data["Operating Income"] = pbt + abs(interest) - abs(other_income)
+
+        # Compute EBITDA if we have Operating Income and D&A
+        if "EBITDA" not in data:
+            op_income = data.get("Operating Income")
+            da = data.get("Depreciation And Amortization")
+            if op_income is not None and da is not None:
+                data["EBITDA"] = op_income + abs(da)
 
 
 def parse_csv(filepath: str) -> dict:
