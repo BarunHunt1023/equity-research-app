@@ -51,6 +51,9 @@ async def upload_file(
         else:  # .xlsx, .xls
             financials = parse_excel(filepath)
 
+        # Extract metadata from financials (populated by parser for screener.in files)
+        meta = financials.pop("metadata", {})
+
         # Log parsed financial structure for debugging
         for stmt_type, stmt_data in financials.items():
             if stmt_data:
@@ -69,20 +72,33 @@ async def upload_file(
                      ratios.get("raw_values", {}).get("net_income"),
                      ratios.get("raw_values", {}).get("ebitda"))
 
-        # Build company_info stub
-        ticker_str = (ticker or "UPLOADED").upper().strip()
+        # Build company_info — use extracted metadata where available, fall back to ticker/filename
+        def _to_float(val):
+            try:
+                return float(val) if val is not None else None
+            except (ValueError, TypeError):
+                return None
+
+        company_name = str(meta.get("company_name", "")).strip() if meta.get("company_name") else ""
+        ticker_str = (ticker or company_name or file.filename.rsplit(".", 1)[0]).upper().strip()
+        display_name = company_name or ticker_str
+
+        logger.info("company_info: name=%s, ticker=%s, price=%s, mktcap=%s, shares=%s",
+                    display_name, ticker_str,
+                    meta.get("current_price"), meta.get("market_cap"), meta.get("shares_outstanding"))
+
         company_info = {
             "ticker": ticker_str,
-            "name": ticker_str,
+            "name": display_name,
             "sector": "N/A",
             "industry": "N/A",
             "country": "N/A",
-            "market_cap": None,
+            "market_cap": _to_float(meta.get("market_cap")),
             "enterprise_value": None,
-            "current_price": None,
+            "current_price": _to_float(meta.get("current_price")),
             "currency": "INR",
             "unit": "Cr",
-            "shares_outstanding": None,
+            "shares_outstanding": _to_float(meta.get("shares_outstanding")),
             "beta": None,
             "trailing_pe": None,
             "forward_pe": None,

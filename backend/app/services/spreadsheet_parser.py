@@ -562,9 +562,12 @@ def _has_sufficient_data(financials: dict) -> bool:
 def _count_fields(financials: dict) -> int:
     """Count total unique fields across all statement types and periods."""
     count = 0
-    for stmt_data in financials.values():
+    for key, stmt_data in financials.items():
+        if key == "metadata":
+            continue
         for period_data in stmt_data.values():
-            count += len(period_data)
+            if isinstance(period_data, dict):
+                count += len(period_data)
     return count
 
 
@@ -590,6 +593,7 @@ def parse_excel(filepath: str) -> dict:
         "income_statement": {},
         "balance_sheet": {},
         "cash_flow": {},
+        "metadata": {},
     }
 
     # Step 1: Parse "Data Sheet" first if present (screener.in primary data source)
@@ -602,6 +606,11 @@ def parse_excel(filepath: str) -> dict:
     if data_sheet_name:
         logger.info("Parsing Data Sheet '%s' first (primary data source)", data_sheet_name)
         _parse_data_sheet_from_file(filepath, financials, sheet_name=data_sheet_name)
+        # Extract company metadata from the Data Sheet META section
+        meta = _extract_company_metadata(filepath, sheet_name=data_sheet_name)
+        if meta:
+            financials["metadata"].update(meta)
+            logger.info("Extracted metadata: %s", meta)
         logger.info("After Data Sheet: IS=%d periods, BS=%d periods, CF=%d periods",
                      len(financials["income_statement"]),
                      len(financials["balance_sheet"]),
@@ -689,8 +698,11 @@ def parse_excel(filepath: str) -> dict:
     # Post-process: compute derived fields if missing
     _compute_derived_fields(financials)
 
-    # Log final structure
+    # Log final structure (skip metadata which has a different structure)
     for stmt, data in financials.items():
+        if stmt == "metadata":
+            logger.info("Final metadata: %s", data)
+            continue
         if data:
             logger.info("Final %s: periods=%s", stmt, list(data.keys()))
             for period, items in data.items():
@@ -699,6 +711,93 @@ def parse_excel(filepath: str) -> dict:
             logger.info("Final %s: EMPTY", stmt)
 
     return financials
+
+
+def _extract_company_metadata(filepath: str, sheet_name: str = "Data Sheet") -> dict:
+    """Extract company metadata from a screener.in Excel export.
+
+    Tries multiple sources in order of reliability:
+    1. Data Sheet META section (rows 0-20): label-value pairs for
+       COMPANY NAME, Number of shares, Face Value, Current Price, Market Cap.
+       Note: these are formula-driven cells and may be empty if formulas
+       weren't evaluated — in that case we fall through.
+    2. Named sheets (Profit & Loss, Balance Sheet, etc.) row 0: screener.in
+       puts the company name in the first cell of the header row (row 0).
+    3. Customization sheet: may have company name in a cell.
+    """
+    xl = pd.ExcelFile(filepath)
+    sheet_names = xl.sheet_names
+    metadata = {}
+
+    label_map = {
+        "company name": "company_name",
+        "number of shares": "shares_outstanding",
+        "face value": "face_value",
+        "current price": "current_price",
+        "market capitalization": "market_cap",
+    }
+
+    # Source 1: Data Sheet META section (label in col A, value in col B)
+    if sheet_name in sheet_names:
+        try:
+            df_raw = pd.read_excel(filepath, sheet_name=sheet_name, header=None)
+            for i in range(min(20, len(df_raw))):
+                cell_a = _clean_text(str(df_raw.iloc[i, 0])).lower() if pd.notna(df_raw.iloc[i, 0]) else ""
+                if not cell_a:
+                    continue
+                for label, key in label_map.items():
+                    if label in cell_a and key not in metadata:
+                        for col in range(1, min(6, len(df_raw.columns))):
+                            cell_val = df_raw.iloc[i, col]
+                            if cell_val is not None and pd.notna(cell_val) and str(cell_val).strip():
+                                metadata[key] = cell_val
+                                break
+                        break
+        except Exception:
+            pass
+
+    # Source 2: Named financial sheets — company name in row 0, col 0
+    if "company_name" not in metadata:
+        for sn in sheet_names:
+            lower = sn.lower().strip()
+            if lower in ("data sheet", "data", "customization", "quarters"):
+                continue
+            if any(kw in lower for kw in ["profit", "balance", "cash", "p&l", "income"]):
+                try:
+                    df_raw = pd.read_excel(filepath, sheet_name=sn, header=None)
+                    if df_raw.empty:
+                        continue
+                    cell = _clean_text(str(df_raw.iloc[0, 0])) if pd.notna(df_raw.iloc[0, 0]) else ""
+                    # A valid company name: non-empty, not a date, not a generic label
+                    if (cell and len(cell) > 3
+                            and _normalize_period(cell) is None
+                            and cell.lower() not in ("narration", "particulars", "report date")):
+                        metadata["company_name"] = cell
+                        logger.info("Extracted company name from sheet '%s' row 0: %s", sn, cell)
+                        break
+                except Exception:
+                    continue
+
+    # Source 3: Customization sheet — may have company name as label-value
+    if "company_name" not in metadata:
+        for sn in sheet_names:
+            if sn.lower().strip() == "customization":
+                try:
+                    df_raw = pd.read_excel(filepath, sheet_name=sn, header=None)
+                    for i in range(min(15, len(df_raw))):
+                        cell_a = _clean_text(str(df_raw.iloc[i, 0])).lower() if pd.notna(df_raw.iloc[i, 0]) else ""
+                        if "company" in cell_a or "name" in cell_a:
+                            for col in range(1, min(4, len(df_raw.columns))):
+                                cell_val = df_raw.iloc[i, col]
+                                if cell_val is not None and pd.notna(cell_val) and str(cell_val).strip():
+                                    metadata["company_name"] = str(cell_val).strip()
+                                    break
+                            if "company_name" in metadata:
+                                break
+                except Exception:
+                    pass
+
+    return metadata
 
 
 def _parse_data_sheet_from_file(filepath: str, financials: dict, sheet_name: str = "Data Sheet"):
