@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
+
 const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' }
 
-const fmt = (val, currency, unit) => {
+function fmt(val, currency, unit) {
   if (val === null || val === undefined) return '—'
   const n = Number(val)
   if (isNaN(n)) return String(val)
@@ -8,8 +10,8 @@ const fmt = (val, currency, unit) => {
 
   if (unit === 'Cr') {
     const abs = Math.abs(n)
-    if (abs >= 100000) return `${sym}${(n / 100000).toFixed(1)}L Cr`
-    if (abs >= 1) return `${n.toLocaleString('en-IN', { maximumFractionDigits: 1 })}`
+    if (abs >= 100000) return `${sym}${(n / 100000).toFixed(1)}L`
+    if (abs >= 1) return n.toLocaleString('en-IN', { maximumFractionDigits: 1 })
     return n.toFixed(1)
   }
 
@@ -21,72 +23,210 @@ const fmt = (val, currency, unit) => {
   return n.toFixed(1)
 }
 
-export default function FinancialTable({ data, title, currency, unit }) {
-  if (!data || Object.keys(data).length === 0) {
-    return <p className="text-gray-400 text-sm">No data available</p>
-  }
+// Rows that get bold treatment + left accent bar + YoY sub-row
+const MAJOR_FIELDS = new Set([
+  'Revenue', 'Net Revenue', 'Total Revenue', 'Sales', 'Net Sales',
+  'Gross Profit',
+  'EBITDA',
+  'Operating Income', 'EBIT', 'Operating Profit',
+  'Net Income', 'Profit After Tax', 'PAT', 'Net Profit',
+  'Total Assets', 'Total Current Assets',
+  'Total Liabilities', 'Total Current Liabilities',
+  'Total Equity', 'Shareholders Equity', 'Net Worth',
+  'Operating Cash Flow', 'Investing Cash Flow', 'Financing Cash Flow',
+  'Free Cash Flow', 'Net Cash Flow',
+])
 
-  // data is { date: { lineItem: value } }
-  const periods = Object.keys(data).sort()
-  const firstPeriod = data[periods[periods.length - 1]] || {}
-  const lineItems = Object.keys(firstPeriod)
+// Rows that also get a "% of Revenue" margin sub-row
+const MARGIN_FIELDS = new Set([
+  'Gross Profit',
+  'EBITDA',
+  'Operating Income', 'EBIT', 'Operating Profit',
+  'Net Income', 'Profit After Tax', 'PAT', 'Net Profit',
+])
 
-  // Format period headers - extract year robustly
-  const formatPeriod = (p) => {
-    if (!p || p === 'null' || p === 'undefined') return p
+function getRevenue(periodData) {
+  if (!periodData) return null
+  return (
+    periodData['Revenue'] ??
+    periodData['Net Revenue'] ??
+    periodData['Total Revenue'] ??
+    periodData['Sales'] ??
+    null
+  )
+}
 
-    // Already a clean 4-digit year
-    if (/^\d{4}$/.test(p)) return p
+function fmtYoY(v) {
+  if (v == null) return '—'
+  const s = (v * 100).toFixed(1)
+  return v >= 0 ? `+${s}%` : `${s}%`
+}
 
-    // "TTM" or similar labels
-    if (p.toUpperCase() === 'TTM') return 'TTM'
+function fmtPeriod(p) {
+  if (!p || p === 'null' || p === 'undefined') return p
+  if (/^\d{4}$/.test(p)) return p
+  if (p.toUpperCase() === 'TTM') return 'TTM'
+  const m = p.match(/\b(19|20)\d{2}\b/)
+  if (m) return m[0]
+  try {
+    const d = new Date(p)
+    if (!isNaN(d.getTime()) && d.getFullYear() > 1900 && d.getFullYear() < 2100)
+      return d.getFullYear().toString()
+  } catch { /* ignore */ }
+  return p
+}
 
-    // Try to extract a 4-digit year from the string
-    const yearMatch = p.match(/\b(19|20)\d{2}\b/)
-    if (yearMatch) return yearMatch[0]
+export default function FinancialTable({ data, currency = 'USD', unit = null, viewMode = 'research' }) {
+  const t = viewMode === 'terminal'
 
-    // Try Date parsing as last resort
-    try {
-      const d = new Date(p)
-      if (!isNaN(d.getTime()) && d.getFullYear() > 1900 && d.getFullYear() < 2100) {
-        return d.getFullYear().toString()
+  const periods = useMemo(() => Object.keys(data || {}).sort(), [data])
+
+  const rows = useMemo(() => {
+    if (!data || periods.length === 0) return []
+    const latestPeriod = data[periods[periods.length - 1]] || {}
+    const lineItems = Object.keys(latestPeriod)
+    const result = []
+
+    for (const item of lineItems) {
+      const isMajor = MAJOR_FIELDS.has(item)
+      const isMarginField = MARGIN_FIELDS.has(item)
+      const values = periods.map(p => data[p]?.[item] ?? null)
+
+      result.push({ type: 'main', item, isMajor, values })
+
+      // YoY growth sub-row
+      if (isMajor) {
+        const yv = periods.map((p, i) => {
+          if (i === 0) return null
+          const curr = data[p]?.[item]
+          const prev = data[periods[i - 1]]?.[item]
+          if (curr == null || prev == null || prev === 0) return null
+          return (curr - prev) / Math.abs(prev)
+        })
+        if (yv.some(v => v != null)) {
+          result.push({ type: 'yoy', item, values: yv })
+        }
       }
-    } catch { /* ignore */ }
 
-    return p
+      // Margin % sub-row
+      if (isMarginField) {
+        const mv = periods.map(p => {
+          const val = data[p]?.[item]
+          const rev = getRevenue(data[p])
+          if (val == null || !rev || rev === 0) return null
+          return val / rev
+        })
+        if (mv.some(v => v != null)) {
+          result.push({ type: 'margin', item, values: mv })
+        }
+      }
+    }
+    return result
+  }, [data, periods])
+
+  if (!data || Object.keys(data).length === 0) {
+    return (
+      <p className={`text-sm p-4 ${t ? 'text-slate-500' : 'text-gray-400'}`}>
+        No data available
+      </p>
+    )
   }
+
+  const accentBorder = t ? 'border-l-amber-400' : 'border-l-[#0a1628]'
+  const rowBorder = t ? 'border-b border-[#1e3048]' : 'border-b border-gray-100'
+  const rowHover = t ? 'hover:bg-[#162032]' : 'hover:bg-gray-50'
+  const headerColor = t ? 'text-amber-400' : 'text-[#0a1628]'
 
   return (
-    <div>
-      {title && <h3 className="section-title">{title}</h3>}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b-2 border-gray-200">
-              <th className="text-left py-2 pr-4 text-gray-600 font-medium w-1/3">Item</th>
-              {periods.map((p) => (
-                <th key={p} className="text-right py-2 px-3 text-gray-600 font-medium">
-                  {formatPeriod(p)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {lineItems.map((item) => (
-              <tr key={item} className="border-b border-gray-50 hover:bg-gray-50">
-                <td className="py-1.5 pr-4 text-gray-700 font-medium text-xs">
-                  {item.replace(/([A-Z])/g, ' $1').trim()}
-                </td>
-                {periods.map((p) => (
-                  <td key={p} className="text-right py-1.5 px-3 tabular-nums text-gray-600 text-xs">
-                    {fmt(data[p]?.[item], currency, unit)}
-                  </td>
-                ))}
-              </tr>
+    <div className="overflow-x-auto">
+      <table className={`w-full text-xs ${t ? 'font-mono' : ''}`}>
+        <thead>
+          <tr className={t ? 'border-b border-amber-400/40' : 'border-b-2 border-[#0a1628]'}>
+            <th className={`sticky left-0 text-left py-2.5 pl-3 pr-6 w-52 font-bold tracking-wider ${headerColor} ${t ? 'bg-[#0f1f30]' : 'bg-white'}`}>
+              {unit === 'Cr' ? '₹ CRORE' : 'METRIC'}
+            </th>
+            {periods.map(p => (
+              <th key={p} className={`text-right py-2.5 px-3 font-bold tracking-wider whitespace-nowrap ${headerColor}`}>
+                {fmtPeriod(p)}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => {
+            if (row.type === 'main') {
+              const boldLabel = row.isMajor
+                ? (t ? 'font-bold text-white' : 'font-bold text-[#0a1628]')
+                : (t ? 'text-slate-300' : 'text-gray-600')
+              const boldNum = row.isMajor
+                ? (t ? 'font-bold text-white' : 'font-bold text-gray-900')
+                : (t ? 'text-slate-300' : 'text-gray-600')
+              return (
+                <tr
+                  key={`${row.item}_main`}
+                  className={`${rowBorder} ${rowHover} border-l-4 ${row.isMajor ? accentBorder : 'border-l-transparent'}`}
+                >
+                  <td className={`sticky left-0 py-2 pl-2 pr-6 ${boldLabel} ${t ? 'bg-[#0f1f30]' : 'bg-white'} ${rowHover}`}>
+                    {row.item}
+                  </td>
+                  {row.values.map((v, i) => (
+                    <td key={periods[i]} className={`text-right py-2 px-3 tabular-nums whitespace-nowrap ${boldNum}`}>
+                      {fmt(v, currency, unit)}
+                    </td>
+                  ))}
+                </tr>
+              )
+            }
+
+            if (row.type === 'yoy') {
+              return (
+                <tr
+                  key={`${row.item}_yoy`}
+                  className={`${t ? 'border-b border-[#1e3048]/50' : 'border-b border-gray-50'} border-l-4 border-l-transparent`}
+                >
+                  <td className={`sticky left-0 py-0.5 pl-6 pr-6 italic ${t ? 'text-slate-500 bg-[#0f1f30]' : 'text-gray-400 bg-white'}`}>
+                    YoY Growth
+                  </td>
+                  {row.values.map((v, i) => (
+                    <td
+                      key={periods[i]}
+                      className={`text-right py-0.5 px-3 tabular-nums font-medium ${
+                        v == null
+                          ? (t ? 'text-slate-700' : 'text-gray-300')
+                          : v >= 0
+                          ? (t ? 'text-green-400' : 'text-green-700')
+                          : (t ? 'text-red-400' : 'text-red-600')
+                      }`}
+                    >
+                      {fmtYoY(v)}
+                    </td>
+                  ))}
+                </tr>
+              )
+            }
+
+            if (row.type === 'margin') {
+              return (
+                <tr
+                  key={`${row.item}_margin`}
+                  className={`${t ? 'border-b border-[#1e3048]/50' : 'border-b border-gray-50'} border-l-4 border-l-transparent`}
+                >
+                  <td className={`sticky left-0 py-0.5 pl-6 pr-6 italic ${t ? 'text-slate-500 bg-[#0f1f30]' : 'text-gray-400 bg-white'}`}>
+                    % of Revenue
+                  </td>
+                  {row.values.map((v, i) => (
+                    <td key={periods[i]} className={`text-right py-0.5 px-3 tabular-nums italic ${t ? 'text-slate-400' : 'text-gray-400'}`}>
+                      {v != null ? `${(v * 100).toFixed(1)}%` : '—'}
+                    </td>
+                  ))}
+                </tr>
+              )
+            }
+
+            return null
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
