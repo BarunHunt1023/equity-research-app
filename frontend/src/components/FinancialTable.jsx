@@ -27,8 +27,8 @@ export default function FinancialTable({ data, title, currency, unit }) {
   }
 
   // data is { date: { lineItem: value } }
-  const periods = Object.keys(data).sort().reverse()
-  const firstPeriod = data[periods[0]] || {}
+  const periods = Object.keys(data).sort()
+  const firstPeriod = data[periods[periods.length - 1]] || {}
   const lineItems = Object.keys(firstPeriod)
 
   // Format period headers - extract year robustly

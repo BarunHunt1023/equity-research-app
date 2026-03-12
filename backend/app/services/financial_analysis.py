@@ -160,7 +160,7 @@ def compute_historical_metrics(financials: dict) -> list[dict]:
     is_data = financials.get("income_statement", {})
     bs_data = financials.get("balance_sheet", {})
 
-    periods = sorted(is_data.keys(), reverse=True) if is_data else []
+    periods = sorted(is_data.keys()) if is_data else []
     history = []
 
     for period in periods:
