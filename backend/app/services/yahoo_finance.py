@@ -140,6 +140,110 @@ def get_financials(ticker: str) -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Normalized financials for fallback merging with screener.in uploads
+# ---------------------------------------------------------------------------
+
+# Mapping from yfinance field names → our internal standard field names
+# (matching the values in spreadsheet_parser._FIELD_MAP_RAW)
+_YF_TO_STANDARD = {
+    # Balance Sheet — aggregate totals (the ones user wants filled from YF)
+    "CurrentAssets":                         "Current Assets",
+    "TotalCurrentAssets":                    "Current Assets",
+    "CurrentLiabilities":                    "Current Liabilities",
+    "TotalCurrentLiabilities":               "Current Liabilities",
+    "NonCurrentAssets":                      "Total Non Current Assets",
+    "TotalNonCurrentAssets":                 "Total Non Current Assets",
+    "NonCurrentLiabilities":                 "Total Non Current Liabilities",
+    "TotalNonCurrentLiabilities":            "Total Non Current Liabilities",
+    # Balance Sheet — other fields
+    "TotalAssets":                           "Total Assets",
+    "CommonStock":                           "Common Stock",
+    "RetainedEarnings":                      "Retained Earnings",
+    "TotalDebt":                             "Total Debt",
+    "LongTermDebt":                          "Total Debt",
+    "ShortTermDebt":                         "Short Term Debt",
+    "CashAndCashEquivalents":                "Cash And Cash Equivalents",
+    "Cash":                                  "Cash And Cash Equivalents",
+    "Inventory":                             "Inventory",
+    "NetReceivables":                        "Net Receivables",
+    "AccountsReceivable":                    "Net Receivables",
+    "PropertyPlantAndEquipmentNet":          "Property Plant And Equipment",
+    "NetPPE":                                "Property Plant And Equipment",
+    "Investments":                           "Investments",
+    "OtherAssets":                           "Other Assets",
+    "StockholdersEquity":                    "Stockholders Equity",
+    "TotalEquityGrossMinorityInterest":      "Stockholders Equity",
+    "OtherLiabilities":                      "Other Liabilities",
+    # Income Statement
+    "TotalRevenue":                          "Total Revenue",
+    "NetIncome":                             "Net Income",
+    "OperatingIncome":                       "Operating Income",
+    "InterestExpense":                       "Interest Expense",
+    "GrossProfit":                           "Gross Profit",
+    "EBITDA":                                "EBITDA",
+    "BasicEPS":                              "Basic EPS",
+    "TaxProvision":                          "Tax Provision",
+    "PretaxIncome":                          "Pretax Income",
+    # Cash Flow
+    "OperatingCashFlow":                     "Operating Cash Flow",
+    "FreeCashFlow":                          "Free Cash Flow",
+    "CapitalExpenditures":                   "Capital Expenditure",
+    "InvestingCashFlow":                     "Cash From Investing",
+    "FinancingCashFlow":                     "Cash From Financing",
+}
+
+
+def get_financials_normalized(ticker: str, divide_by: float = None) -> dict:
+    """Fetch financials from Yahoo Finance with normalized field names and year-based periods.
+
+    Returns {stmt_type: {year_str: {standard_field: value}}}
+    e.g. {"balance_sheet": {"2024": {"Current Assets": 5123.4, ...}, ...}}
+
+    Args:
+        ticker: Yahoo Finance ticker symbol (e.g. "VBL.NS", "AAPL")
+        divide_by: if set, divide all numeric values by this factor.
+            Use 10_000_000 when merging with screener.in Crore-unit data for Indian stocks.
+    """
+    cache_key = f"financials_norm:{ticker}:{divide_by}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        raw = get_financials(ticker)   # reuses existing rate-limited, cached fetch
+    except Exception:
+        return {}
+
+    result = {}
+    for stmt_type, stmt_data in raw.items():
+        normalized_stmt = {}
+        for date_key, period_data in stmt_data.items():
+            # "2024-03-31T00:00:00" → "2024"
+            year = str(date_key)[:4]
+            if year not in normalized_stmt:
+                normalized_stmt[year] = {}
+            for yf_field, value in period_data.items():
+                if value is None:
+                    continue
+                standard = _YF_TO_STANDARD.get(yf_field)
+                if standard is None:
+                    continue
+                # First occurrence for this (year, standard field) wins
+                if standard in normalized_stmt[year]:
+                    continue
+                if divide_by:
+                    try:
+                        value = value / divide_by
+                    except (TypeError, ZeroDivisionError):
+                        continue
+                normalized_stmt[year][standard] = value
+        result[stmt_type] = normalized_stmt
+
+    _cache_set(cache_key, result)
+    return result
+
+
 _MONTH_ABBR = {
     1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
     7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",

@@ -470,6 +470,31 @@ def build_balance_sheet(annual_bs: dict, annual_income: dict, company_info: dict
     inventory = bseries("Inventory")
     cash = bseries("Cash And Cash Equivalents")
 
+    # ---- Component-based fallbacks for aggregate rows missing in screener.in exports ----
+
+    # Total Current Assets: use aggregate from data, else sum Cash + Debtors + Inventory
+    curr_assets = [
+        curr_assets[i] if curr_assets[i] is not None
+        else (
+            _round_val((cash[i] or 0) + (debtors[i] or 0) + (inventory[i] or 0))
+            if any(v is not None for v in [cash[i], debtors[i], inventory[i]])
+            else None
+        )
+        for i in range(n)
+    ]
+
+    # Total Non-Current Assets: use aggregate from data,
+    # else sum Net Block + CWIP + Investments + Other Assets
+    nc_assets_raw = [
+        nc_assets_raw[i] if nc_assets_raw[i] is not None
+        else (
+            _round_val((net_block[i] or 0) + (cwip[i] or 0) + (investments[i] or 0) + (other_assets[i] or 0))
+            if any(v is not None for v in [net_block[i], cwip[i], investments[i], other_assets[i]])
+            else None
+        )
+        for i in range(n)
+    ]
+
     # ---- Derived totals ----
 
     # Total Equity = Equity Share Capital + Reserves
