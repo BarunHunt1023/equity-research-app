@@ -71,6 +71,15 @@ export default function FinancialsPage() {
   const sym = getCurrencySymbol(currency)
   const f = (v) => fmt(v, currency, unit)
 
+  // Helper: get last non-null value from a screenerTables row by label
+  function screenerVal(tableKey, rowLabel) {
+    const rows = screenerTables?.[tableKey]?.rows || []
+    const row = rows.find(r => r.label === rowLabel)
+    if (!row) return null
+    const vals = (row.values || []).filter(v => v != null)
+    return vals.length > 0 ? vals[vals.length - 1] : null
+  }
+
   const stmtMap = {
     'Income Statement': financials?.income_statement,
     'Balance Sheet': financials?.balance_sheet,
@@ -152,9 +161,13 @@ export default function FinancialsPage() {
                     </span>
                     {t && <span className="text-green-400 text-xs font-mono">▲ EQUITY</span>}
                   </div>
-                  <p className={`text-xs ${t ? 'text-slate-400 font-mono' : 'text-white/60'}`}>
-                    {companyInfo.sector} · {companyInfo.industry} · {companyInfo.country}
-                  </p>
+                  {[companyInfo.sector, companyInfo.industry, companyInfo.country]
+                    .filter(v => v && v !== 'N/A').length > 0 && (
+                    <p className={`text-xs ${t ? 'text-slate-400 font-mono' : 'text-white/60'}`}>
+                      {[companyInfo.sector, companyInfo.industry, companyInfo.country]
+                        .filter(v => v && v !== 'N/A').join(' · ')}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right flex-shrink-0">
                   {companyInfo.current_price != null && (
@@ -176,14 +189,20 @@ export default function FinancialsPage() {
           <div className={cardClass}>
             <SectionBand title="Key Metrics" />
             <div className={`grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x ${t ? 'divide-[#1e3048]' : 'divide-gray-100'}`}>
-              {[
-                { label: 'Revenue', value: f(raw.revenue), sub: null },
-                { label: 'EBITDA', value: f(raw.ebitda), sub: prof.ebitda_margin ? `${pct(prof.ebitda_margin)} margin` : null },
-                { label: 'Net Income', value: f(raw.net_income), sub: prof.net_margin ? `${pct(prof.net_margin)} margin` : null },
-                { label: 'ROE', value: pct(prof.roe), sub: null },
-                { label: 'D/E Ratio', value: solv.debt_to_equity != null ? `${solv.debt_to_equity.toFixed(2)}x` : '—', sub: null },
-                { label: 'Current Ratio', value: liq.current_ratio?.toFixed(2) ?? '—', sub: null },
-              ].map(({ label, value, sub }) => (
+              {(() => {
+                const ebitda = raw.ebitda ?? screenerVal('profit_loss', 'EBITDA')
+                const netIncome = raw.net_income ?? screenerVal('profit_loss', 'Net profit')
+                const screenerRoe = screenerVal('balance_sheet', 'Return on Equity')
+                const roe = prof.roe != null ? pct(prof.roe) : (screenerRoe != null ? `${screenerRoe.toFixed(1)}%` : '—')
+                return [
+                  { label: 'Revenue', value: f(raw.revenue), sub: null },
+                  { label: 'EBITDA', value: f(ebitda), sub: prof.ebitda_margin ? `${pct(prof.ebitda_margin)} margin` : null },
+                  { label: 'Net Income', value: f(netIncome), sub: prof.net_margin ? `${pct(prof.net_margin)} margin` : null },
+                  { label: 'ROE', value: roe, sub: null },
+                  { label: 'D/E Ratio', value: solv.debt_to_equity != null ? `${solv.debt_to_equity.toFixed(2)}x` : '—', sub: null },
+                  { label: 'Current Ratio', value: liq.current_ratio?.toFixed(2) ?? '—', sub: null },
+                ]
+              })().map(({ label, value, sub }) => (
                 <div key={label} className={`px-4 py-3 ${t ? 'border-b border-[#1e3048] lg:border-b-0' : 'border-b border-gray-50 lg:border-b-0'}`}>
                   <p className={`text-xs font-semibold tracking-wider uppercase mb-1 ${t ? 'text-amber-400' : 'text-[#0a1628]'}`}>
                     {label}
