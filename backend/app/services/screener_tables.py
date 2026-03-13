@@ -296,9 +296,29 @@ def build_profit_loss(annual_income: dict, company_info: dict, shares_outstandin
     div_vals  = yseries("Dividend Payout")
     ret_earn_vals = yseries("Retained Earnings")
 
+    # Expense breakdown fields
+    total_exp_vals  = yseries("Total Expenses")
+    material_vals   = yseries("Cost Of Revenue")
+    power_fuel_vals = yseries("Power and Fuel Cost")
+    mfr_exp_vals    = yseries("Manufacturing Expenses")
+    employee_vals   = yseries("Employee Cost")
+    selling_vals    = yseries("Other Expenses")
+
     n = len(sorted_y)
 
     # Compute derived series
+    rev_yoy          = [None] + [_yoy(rev_vals[i], rev_vals[i-1]) for i in range(1, n)]
+    # Total expenses fallback: Revenue - Gross Profit
+    total_exp_vals   = [
+        total_exp_vals[i] if total_exp_vals[i] is not None
+        else (_round_val(rev_vals[i] - gp_vals[i]) if rev_vals[i] is not None and gp_vals[i] is not None else None)
+        for i in range(n)
+    ]
+    material_pct     = [_pct(material_vals[i], rev_vals[i]) for i in range(n)]
+    power_fuel_pct   = [_pct(power_fuel_vals[i], rev_vals[i]) for i in range(n)]
+    mfr_exp_pct      = [_pct(mfr_exp_vals[i], rev_vals[i]) for i in range(n)]
+    employee_pct     = [_pct(employee_vals[i], rev_vals[i]) for i in range(n)]
+    selling_pct      = [_pct(selling_vals[i], rev_vals[i]) for i in range(n)]
     gp_margin_vals   = [_pct(gp_vals[i], rev_vals[i]) for i in range(n)]
     ebitda_margin_vals = [_pct(ebitda_vals[i], rev_vals[i]) for i in range(n)]
     oi_pct_vals      = [_pct(oi_vals[i], rev_vals[i]) for i in range(n)]
@@ -348,7 +368,20 @@ def build_profit_loss(annual_income: dict, company_info: dict, shares_outstandin
     columns = sorted_y + ["LTM"]
     has_ltm = True
 
+    # Helper: only include a row if it has at least one non-None value
+    def has_data(vals):
+        return any(v is not None for v in vals)
+
     rows = [
+        {"label": "Sales",                   "type": "bold",   "values": with_ltm(round_series(rev_vals)), "has_ltm": has_ltm},
+        {"label": "% Growth YOY",            "type": "italic", "values": with_ltm(pct_series(rev_yoy))},
+        {"label": "Expenses",                "type": "normal", "values": with_ltm(round_series(total_exp_vals)), "has_ltm": has_ltm},
+        *([{"label": "Material Cost (% of Sales)", "type": "italic", "values": with_ltm(pct_series(material_pct))}] if has_data(material_pct) else []),
+        *([{"label": "Power and Fuel",        "type": "italic", "values": with_ltm(pct_series(power_fuel_pct))}] if has_data(power_fuel_pct) else []),
+        *([{"label": "Other Mfr. Exp",        "type": "italic", "values": with_ltm(pct_series(mfr_exp_pct))}] if has_data(mfr_exp_pct) else []),
+        *([{"label": "Employee Cost",         "type": "italic", "values": with_ltm(pct_series(employee_pct))}] if has_data(employee_pct) else []),
+        *([{"label": "Selling and Admin Cost","type": "italic", "values": with_ltm(pct_series(selling_pct))}] if has_data(selling_pct) else []),
+        {"label": "Gross Profit",            "type": "bold",   "values": with_ltm(round_series(gp_vals)), "has_ltm": has_ltm},
         {"label": "Gross Profit Margin",     "type": "italic", "values": with_ltm(pct_series(gp_margin_vals))},
         {"label": "EBITDA",                  "type": "bold",   "values": with_ltm(round_series(ebitda_vals)), "has_ltm": has_ltm},
         {"label": "EBITDA Margins",          "type": "italic", "values": with_ltm(pct_series(ebitda_margin_vals))},
