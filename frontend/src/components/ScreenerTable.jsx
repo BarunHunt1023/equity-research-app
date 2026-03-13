@@ -114,7 +114,7 @@ export default function ScreenerTable({
 
       {/* ── Table wrapper with horizontal scroll ────────────────────────── */}
       <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse" style={{ minWidth: `${(columns.length + 1) * 72 + (hasTrend ? trendColumns.length * 80 + 40 : 0)}px` }}>
+        <table className="w-full text-xs border-collapse" style={{ minWidth: `${(columns.length + 1) * 60 + (hasTrend ? trendColumns.length * 65 + 40 : 0)}px` }}>
           {/* Column header row */}
           <thead>
             <tr className={t ? 'bg-[#0f2040]' : 'bg-gray-50'}>
@@ -134,12 +134,12 @@ export default function ScreenerTable({
               {columns.map((col, ci) => (
                 <th
                   key={`col-${ci}`}
-                  className={`text-right px-3 py-2 font-semibold whitespace-nowrap border-b ${
+                  className={`text-right px-2 py-2 font-semibold whitespace-nowrap border-b ${
                     t
                       ? 'text-amber-400 border-[#1e3048]'
                       : 'text-gray-700 border-gray-200'
                   } ${col === 'TTM' || col === 'LTM' ? (t ? 'text-amber-300' : 'text-blue-700 font-bold') : ''}`}
-                  style={{ minWidth: '64px' }}
+                  style={{ minWidth: '56px' }}
                 >
                   {col}
                 </th>
@@ -153,10 +153,10 @@ export default function ScreenerTable({
                   {trendColumns.map((tc, ti) => (
                     <th
                       key={`tc-${ti}`}
-                      className={`text-right px-3 py-2 font-semibold whitespace-nowrap border-b ${
+                      className={`text-right px-2 py-2 font-semibold whitespace-nowrap border-b ${
                         t ? 'bg-[#0f2040] text-amber-400 border-[#1e3048]' : 'bg-[#0a1628] text-white border-gray-200'
                       }`}
-                      style={{ minWidth: '72px' }}
+                      style={{ minWidth: '65px' }}
                     >
                       {tc}
                     </th>
