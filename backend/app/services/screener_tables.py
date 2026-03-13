@@ -504,56 +504,51 @@ def build_balance_sheet(annual_bs: dict, annual_income: dict, company_info: dict
         for i in range(n)
     ]
 
-    # Total Non-Current Assets: from data OR Total Assets − Current Assets
-    nc_assets_vals = [
-        nc_assets_raw[i] if nc_assets_raw[i] is not None
-        else (
-            _round_val(total_assets_raw[i] - curr_assets[i])
-            if total_assets_raw[i] is not None and curr_assets[i] is not None else None
-        )
-        for i in range(n)
-    ]
+    # Total Non-Current Assets: from YF merge OR component sum (Net Block + CWIP + Inv + Other)
+    nc_assets_vals = [nc_assets_raw[i] for i in range(n)]  # already computed via fallback above
 
-    # Total Non-Current Liabilities: from data OR Borrowings + Other Liab − Current Liab
+    # Total Non-Current Liabilities: from YF merge OR Borrowings + Short-Term Debt + Other Liab
+    # Note: screener "Borrowings" may include current portion; the residual curr_liab_final below
+    # captures the remaining trade payables / provisions not visible in screener.in condensed BS.
     nc_liab_vals = [
         nc_liab_raw[i] if nc_liab_raw[i] is not None
         else (
-            _round_val(
-                (borrowings[i] or 0) + (short_term_debt[i] or 0) +
-                (other_liab[i] or 0) - (curr_liab[i] or 0)
-            )
-            if any(v is not None for v in [borrowings[i], other_liab[i], curr_liab[i]])
+            _round_val((borrowings[i] or 0) + (short_term_debt[i] or 0) + (other_liab[i] or 0))
+            if any(v is not None for v in [borrowings[i], other_liab[i]])
             else None
         )
         for i in range(n)
     ]
 
-    # FIXED Total Liabilities = sum of all equity + liability components
-    total_liab_fixed = [
-        _round_val(
-            (eq_cap[i] or 0) + (reserves[i] or 0) +
-            (borrowings[i] or 0) + (short_term_debt[i] or 0) +
-            (other_liab[i] or 0)
-        )
-        if any(v is not None for v in [eq_cap[i], reserves[i], borrowings[i], other_liab[i]])
-        else None
-        for i in range(n)
-    ]
-
-    # FIXED Total Assets: from data OR NC Assets + Current Assets
+    # Total Assets = NC Assets + Current Assets  (identity-safe; both sides always visible)
     total_assets = [
-        total_assets_raw[i] if total_assets_raw[i] is not None
+        _round_val((nc_assets_vals[i] or 0) + (curr_assets[i] or 0))
+        if nc_assets_vals[i] is not None or curr_assets[i] is not None else None
+        for i in range(n)
+    ]
+
+    # Total Liabilities = Total Assets − Total Equity  ← ACCOUNTING IDENTITY (equity excluded)
+    total_liab = [
+        _round_val(total_assets[i] - total_equity_vals[i])
+        if total_assets[i] is not None and total_equity_vals[i] is not None else None
+        for i in range(n)
+    ]
+
+    # Total Current Liabilities: prefer YF merge value; else residual = Total Liab − NCL
+    curr_liab_final = [
+        curr_liab[i] if curr_liab[i] is not None
         else (
-            _round_val((nc_assets_vals[i] or 0) + (curr_assets[i] or 0))
-            if nc_assets_vals[i] is not None or curr_assets[i] is not None else None
+            _round_val(total_liab[i] - nc_liab_vals[i])
+            if total_liab[i] is not None and nc_liab_vals[i] is not None else None
         )
         for i in range(n)
     ]
 
-    # Working Capital
+    # Working Capital = Current Assets − Current Liabilities
     wc_vals = [
-        _round_val((ca or 0) - (cl or 0)) if (ca is not None or cl is not None) else None
-        for ca, cl in zip(curr_assets, curr_liab)
+        _round_val((ca or 0) - (cl or 0))
+        if ca is not None or cl is not None else None
+        for ca, cl in zip(curr_assets, curr_liab_final)
     ]
 
     def has_data(vals):
@@ -589,8 +584,8 @@ def build_balance_sheet(annual_bs: dict, annual_income: dict, company_info: dict
     # ROCE = EBIT / Capital Employed (Total Assets - Current Liabilities)
     roce = []
     for i in range(n):
-        if ebit_vals[i] is not None and total_assets[i] and curr_liab[i] is not None:
-            cap_emp = total_assets[i] - curr_liab[i]
+        if ebit_vals[i] is not None and total_assets[i] and curr_liab_final[i] is not None:
+            cap_emp = total_assets[i] - curr_liab_final[i]
             roce.append(_pct(ebit_vals[i], cap_emp) if cap_emp else None)
         else:
             roce.append(None)
@@ -620,46 +615,59 @@ def build_balance_sheet(annual_bs: dict, annual_income: dict, company_info: dict
         return [round(v, 1) if v is not None else None for v in vals]
 
     rows = [
-        # ---- Equity ----
-        {"label": "Equity Share Capital",         "type": "normal", "values": r(eq_cap), "has_ltm": False},
-        {"label": "Reserves",                     "type": "normal", "values": r(reserves), "has_ltm": False},
-        {"label": "Total Equity",                 "type": "bold",   "values": r(total_equity_vals), "has_ltm": False},
-        {"label": "",                             "type": "section","values": [None]*n},
-        # ---- Non-Current & Current Liabilities ----
-        {"label": "Borrowings",                   "type": "normal", "values": r(borrowings), "has_ltm": False},
-        *([{"label": "Short-Term Borrowings",     "type": "normal", "values": r(short_term_debt), "has_ltm": False}] if has_data(short_term_debt) else []),
-        {"label": "Other Liabilities",            "type": "normal", "values": r(other_liab), "has_ltm": False},
-        {"label": "Total Non-Current Liabilities","type": "bold",   "values": r(nc_liab_vals), "has_ltm": False},
-        {"label": "Total Current Liabilities",    "type": "bold",   "values": r(curr_liab), "has_ltm": False},
-        {"label": "",                             "type": "section","values": [None]*n},
-        {"label": "Total Liabilities",            "type": "bold",   "values": r(total_liab_fixed), "has_ltm": False},
-        {"label": "",                             "type": "section","values": [None]*n},
-        # ---- Non-Current Assets ----
-        {"label": "Net Block",                    "type": "normal", "values": r(net_block), "has_ltm": False},
-        {"label": "Capital Work in Progress",     "type": "normal", "values": r(cwip), "has_ltm": False},
-        {"label": "Investments",                  "type": "normal", "values": r(investments), "has_ltm": False},
-        {"label": "Other Assets",                 "type": "normal", "values": r(other_assets), "has_ltm": False},
-        {"label": "Total Non-Current Assets",     "type": "bold",   "values": r(nc_assets_vals), "has_ltm": False},
-        {"label": "",                             "type": "section","values": [None]*n},
-        # ---- Current Assets ----
-        {"label": "Cash & Bank",                  "type": "normal", "values": r(cash), "has_ltm": False},
-        {"label": "Debtors",                      "type": "normal", "values": r(debtors), "has_ltm": False},
-        {"label": "Inventory",                    "type": "normal", "values": r(inventory), "has_ltm": False},
-        {"label": "Total Current Assets",         "type": "bold",   "values": r(curr_assets), "has_ltm": False},
-        {"label": "",                             "type": "section","values": [None]*n},
-        {"label": "Total Assets",                 "type": "bold",   "values": r(total_assets), "has_ltm": False},
-        {"label": "",                             "type": "section","values": [None]*n},
-        # ---- Working Capital & Key Ratios ----
-        {"label": "Working Capital",              "type": "normal", "values": wc_vals, "has_ltm": False},
-        {"label": "",                             "type": "section","values": [None]*n},
-        {"label": "Debtor Days",                  "type": "italic", "values": p(debtor_days)},
-        {"label": "Inventory Turnover",           "type": "italic", "values": p(inv_turnover)},
-        {"label": "Net Fixed Asset Turnover",     "type": "italic", "values": p(fa_turnover)},
-        {"label": "Debt/Equity",                  "type": "italic", "values": p(de_ratio)},
-        {"label": "Return on Equity",             "type": "italic", "values": p(roe)},
-        {"label": "Return on Capital Employed",   "type": "italic", "values": p(roce)},
-        {"label": "Return on Invested Capital",   "type": "italic", "values": p(roic)},
-        {"label": "Market Cap",                   "type": "normal", "values": mktcap_vals, "has_ltm": False},
+        # ════════════════════════════════════════
+        # ASSETS  (Yahoo Finance layout: assets first)
+        # ════════════════════════════════════════
+        # Current Assets
+        {"label": "Cash & Bank",                   "type": "normal",  "values": r(cash),             "has_ltm": False},
+        {"label": "Debtors",                        "type": "normal",  "values": r(debtors),          "has_ltm": False},
+        {"label": "Inventory",                      "type": "normal",  "values": r(inventory),        "has_ltm": False},
+        {"label": "Total Current Assets",           "type": "bold",    "values": r(curr_assets),      "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        # Non-Current Assets
+        {"label": "Net Block",                      "type": "normal",  "values": r(net_block),        "has_ltm": False},
+        {"label": "Capital Work in Progress",       "type": "normal",  "values": r(cwip),             "has_ltm": False},
+        {"label": "Investments",                    "type": "normal",  "values": r(investments),      "has_ltm": False},
+        {"label": "Other Assets",                   "type": "normal",  "values": r(other_assets),     "has_ltm": False},
+        {"label": "Total Non-Current Assets",       "type": "bold",    "values": r(nc_assets_vals),   "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        {"label": "Total Assets",                   "type": "bold",    "values": r(total_assets),     "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        # ════════════════════════════════════════
+        # LIABILITIES
+        # ════════════════════════════════════════
+        # Current Liabilities (residual or from Yahoo Finance; no line-item detail from screener)
+        {"label": "Total Current Liabilities",      "type": "bold",    "values": r(curr_liab_final),  "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        # Non-Current Liabilities
+        {"label": "Borrowings",                     "type": "normal",  "values": r(borrowings),       "has_ltm": False},
+        *([{"label": "Short-Term Borrowings",       "type": "normal",  "values": r(short_term_debt),  "has_ltm": False}] if has_data(short_term_debt) else []),
+        {"label": "Other Liabilities",              "type": "normal",  "values": r(other_liab),       "has_ltm": False},
+        {"label": "Total Non-Current Liabilities",  "type": "bold",    "values": r(nc_liab_vals),     "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        # Total Liabilities = Total Assets − Total Equity  (identity always holds)
+        {"label": "Total Liabilities",              "type": "bold",    "values": r(total_liab),       "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        # ════════════════════════════════════════
+        # EQUITY
+        # ════════════════════════════════════════
+        {"label": "Equity Share Capital",           "type": "normal",  "values": r(eq_cap),           "has_ltm": False},
+        {"label": "Reserves",                       "type": "normal",  "values": r(reserves),         "has_ltm": False},
+        {"label": "Total Equity",                   "type": "bold",    "values": r(total_equity_vals), "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        # ════════════════════════════════════════
+        # WORKING CAPITAL & KEY RATIOS
+        # ════════════════════════════════════════
+        {"label": "Working Capital",                "type": "normal",  "values": wc_vals,             "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        {"label": "Debtor Days",                    "type": "italic",  "values": p(debtor_days)},
+        {"label": "Inventory Turnover",             "type": "italic",  "values": p(inv_turnover)},
+        {"label": "Net Fixed Asset Turnover",       "type": "italic",  "values": p(fa_turnover)},
+        {"label": "Debt/Equity",                    "type": "italic",  "values": p(de_ratio)},
+        {"label": "Return on Equity",               "type": "italic",  "values": p(roe)},
+        {"label": "Return on Capital Employed",     "type": "italic",  "values": p(roce)},
+        {"label": "Return on Invested Capital",     "type": "italic",  "values": p(roic)},
+        {"label": "Market Cap",                     "type": "normal",  "values": mktcap_vals,         "has_ltm": False},
     ]
 
     trend_rows = _build_trend_rows(rows, sorted_y)
