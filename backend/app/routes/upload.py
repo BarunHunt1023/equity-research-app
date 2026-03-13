@@ -7,7 +7,7 @@ from typing import Optional
 from app.config import UPLOAD_DIR
 from app.services.pdf_parser import parse_pdf
 from app.services.spreadsheet_parser import parse_excel, parse_csv
-from app.services import financial_analysis
+from app.services import financial_analysis, yahoo_finance
 from app.services.screener_tables import build_screener_tables
 
 logger = logging.getLogger(__name__)
@@ -15,6 +15,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ALLOWED_EXTENSIONS = {".pdf", ".csv", ".xlsx", ".xls"}
+
+
+def _merge_financials(primary: dict, fallback: dict) -> dict:
+    """Merge two financials dicts. Primary data takes precedence; fallback fills missing fields.
+
+    Both dicts have the shape: {stmt_type: {period: {field: value}}}
+    Only periods already present in primary are enriched — no new periods are added from fallback.
+    """
+    merged = {}
+    for stmt_type, primary_stmt in primary.items():
+        fallback_stmt = fallback.get(stmt_type, {})
+        merged_stmt = {}
+        for period, period_data in primary_stmt.items():
+            merged_period = dict(period_data)
+            # Try exact year match first, then 4-char prefix match
+            fb_period = fallback_stmt.get(period) or fallback_stmt.get(str(period)[:4], {})
+            for field, value in fb_period.items():
+                if merged_period.get(field) is None and value is not None:
+                    merged_period[field] = value
+            merged_stmt[period] = merged_period
+        merged[stmt_type] = merged_stmt
+    return merged
 
 
 @router.post("/upload")
@@ -55,6 +77,20 @@ async def upload_file(
         # Extract metadata and quarterly data from financials
         meta = financials.pop("metadata", {})
         quarterly_data = financials.pop("quarterly_results", {})
+
+        # Yahoo Finance fallback: fill in missing aggregate fields (Current Assets,
+        # Non-Current Assets, Current Liabilities, Non-Current Liabilities) if ticker provided.
+        # screener.in exports values in Crores; Yahoo Finance returns actual INR → divide by 10^7.
+        yf_ticker = (ticker or "").strip()
+        if yf_ticker:
+            try:
+                logger.info("Fetching Yahoo Finance fallback data for ticker: %s", yf_ticker)
+                yf_data = yahoo_finance.get_financials_normalized(yf_ticker, divide_by=10_000_000)
+                if yf_data:
+                    financials = _merge_financials(financials, yf_data)
+                    logger.info("Yahoo Finance fallback merged successfully for %s", yf_ticker)
+            except Exception as yf_err:
+                logger.warning("Yahoo Finance fallback skipped for %s: %s", yf_ticker, yf_err)
 
         # Log parsed financial structure for debugging
         for stmt_type, stmt_data in financials.items():
