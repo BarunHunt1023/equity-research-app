@@ -4,6 +4,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from app.models.schemas import AnalyzeRequest, ForecastRequest, DCFRequest, RelativeValuationRequest
 from app.services import yahoo_finance, financial_analysis, forecasting, dcf_valuation, relative_valuation
+from app.services.screener_tables import build_screener_tables
 
 router = APIRouter()
 
@@ -21,12 +22,20 @@ def analyze(req: AnalyzeRequest):
         ratios = financial_analysis.compute_ratios(financials)
         historical = financial_analysis.compute_historical_metrics(financials)
 
+        # Fetch quarterly data and build screener-style tables
+        try:
+            quarterly_data = yahoo_finance.get_quarterly_financials(ticker)
+        except Exception:
+            quarterly_data = {}
+        screener_tables = build_screener_tables(financials, quarterly_data, company_info)
+
         return {
             "company_info": company_info,
             "financials": financials,
             "historical_prices": prices,
             "ratios": ratios,
             "historical_metrics": historical,
+            "screener_tables": screener_tables,
         }
     except json.JSONDecodeError:
         raise HTTPException(

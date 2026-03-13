@@ -140,6 +140,51 @@ def get_financials(ticker: str) -> dict:
     return result
 
 
+_MONTH_ABBR = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
+}
+
+
+def get_quarterly_financials(ticker: str) -> dict:
+    """Fetch quarterly income statement data using yfinance.
+
+    Returns {quarter_label: {field_name: value}} e.g. {"Mar-22": {"Net Income": 254, ...}}.
+    """
+    cache_key = f"quarterly:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    def _fetch():
+        _rate_limit()
+        t = yf.Ticker(ticker)
+        df = t.quarterly_income_stmt
+        if df is None or df.empty:
+            return {}
+        result = {}
+        for col in df.columns:
+            if isinstance(col, pd.Timestamp):
+                label = f"{_MONTH_ABBR.get(col.month, 'Jan')}-{str(col.year)[2:]}"
+            else:
+                label = str(col)
+            period_data = {}
+            for idx in df.index:
+                val = _safe_val(df.at[idx, col])
+                if val is not None:
+                    period_data[str(idx)] = val
+            if period_data:
+                result[label] = period_data
+        return result
+
+    try:
+        result = _retry(_fetch)
+    except Exception:
+        result = {}
+    _cache_set(cache_key, result)
+    return result
+
+
 def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
     cache_key = f"prices:{ticker}:{period}"
     cached = _cache_get(cache_key)
