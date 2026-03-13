@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAnalysis } from '../context/AnalysisContext'
 import FinancialTable from '../components/FinancialTable'
+import ScreenerTable from '../components/ScreenerTable'
 import RevenueEarningsChart from '../components/charts/RevenueEarningsChart'
 import MarginChart from '../components/charts/MarginChart'
 import StockPriceChart from '../components/charts/StockPriceChart'
@@ -36,9 +37,17 @@ const STATEMENT_TABS = [
   { key: 'Cash Flow', short: 'CF' },
 ]
 
+const SCREENER_TABS = [
+  { key: 'quarterly_results', label: 'Quarterly Reports', title: 'Quarterly Results' },
+  { key: 'profit_loss',       label: 'P&L',               title: 'Profit & Loss Statement' },
+  { key: 'balance_sheet',     label: 'Balance Sheet',      title: 'Balance Sheet' },
+  { key: 'cash_flow',         label: 'Cashflows',          title: 'Cash Flow Statement' },
+]
+
 export default function FinancialsPage() {
-  const { companyInfo, financials, ratios, historicalPrices, historicalMetrics } = useAnalysis()
+  const { companyInfo, financials, ratios, historicalPrices, historicalMetrics, screenerTables } = useAnalysis()
   const [tab, setTab] = useState('Income Statement')
+  const [screenerTab, setScreenerTab] = useState('quarterly_results')
   const [viewMode, setViewMode] = useState('research') // 'research' | 'terminal'
   const navigate = useNavigate()
 
@@ -241,6 +250,46 @@ export default function FinancialsPage() {
             />
           </div>
         </div>
+
+        {/* ── Screener-Style Financial Tables ──────────────────────── */}
+        {screenerTables && (
+          <div className={cardClass}>
+            <SectionBand title="Detailed Financials">
+              <div className="flex gap-1">
+                {SCREENER_TABS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setScreenerTab(key)}
+                    className={`px-3 py-0.5 text-xs font-bold tracking-wide transition-colors ${
+                      screenerTab === key
+                        ? (t ? 'bg-amber-400 text-[#0a1628]' : 'bg-white text-[#0a1628]')
+                        : (t ? 'text-slate-400 hover:text-amber-400' : 'text-white/60 hover:text-white')
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </SectionBand>
+            <div className={t ? 'bg-[#0b1929]' : ''}>
+              {SCREENER_TABS.map(({ key, title }) =>
+                screenerTab === key ? (
+                  <ScreenerTable
+                    key={key}
+                    title={title}
+                    companyName={companyInfo?.name || ''}
+                    denomination="Rs Cr"
+                    viewMode={viewMode}
+                    columns={screenerTables[key]?.columns || []}
+                    rows={screenerTables[key]?.rows || []}
+                    trendColumns={screenerTables[key]?.trend_columns || []}
+                    trendRows={screenerTables[key]?.trend_rows || []}
+                  />
+                ) : null
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Financial Ratios ─────────────────────────────────────── */}
         {ratios && (

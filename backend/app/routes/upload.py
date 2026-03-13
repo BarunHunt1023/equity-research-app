@@ -8,6 +8,7 @@ from app.config import UPLOAD_DIR
 from app.services.pdf_parser import parse_pdf
 from app.services.spreadsheet_parser import parse_excel, parse_csv
 from app.services import financial_analysis
+from app.services.screener_tables import build_screener_tables
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +52,9 @@ async def upload_file(
         else:  # .xlsx, .xls
             financials = parse_excel(filepath)
 
-        # Extract metadata from financials (populated by parser for screener.in files)
+        # Extract metadata and quarterly data from financials
         meta = financials.pop("metadata", {})
+        quarterly_data = financials.pop("quarterly_results", {})
 
         # Log parsed financial structure for debugging
         for stmt_type, stmt_data in financials.items():
@@ -108,6 +110,9 @@ async def upload_file(
             "description": f"Financial data uploaded from {file.filename}",
         }
 
+        # Build screener-style tables
+        screener_tables = build_screener_tables(financials, quarterly_data, company_info)
+
         # Return same format as /analyze endpoint
         return {
             "company_info": company_info,
@@ -115,6 +120,7 @@ async def upload_file(
             "historical_prices": [],
             "ratios": ratios,
             "historical_metrics": historical,
+            "screener_tables": screener_tables,
         }
 
     except Exception as e:

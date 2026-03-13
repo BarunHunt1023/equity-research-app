@@ -185,6 +185,12 @@ _DATE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Abbreviated month names for quarterly period labels
+_MONTH_ABBR = {
+    1: "Jan", 2: "Feb", 3: "Mar", 4: "Apr", 5: "May", 6: "Jun",
+    7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dec",
+}
+
 # Pattern for standalone 4-digit year
 _YEAR_PATTERN = re.compile(r"^\d{4}$")
 
@@ -281,6 +287,51 @@ def _normalize_period(col) -> str | None:
             return str(dt.year)
     except (ValueError, TypeError):
         pass
+
+    return None
+
+
+def _normalize_quarterly_period(col) -> str | None:
+    """Convert a column header to a quarter label like 'Mar-22', 'Jun-23'.
+
+    Unlike _normalize_period which strips to year only, this preserves the
+    month+year so quarterly columns retain their quarter granularity.
+    Returns None for non-date/non-quarter columns.
+    """
+    if col is None:
+        return None
+
+    # Handle pandas Timestamp
+    if isinstance(col, pd.Timestamp):
+        return f"{_MONTH_ABBR.get(col.month, 'Jan')}-{str(col.year)[2:]}"
+
+    # Handle numeric year
+    if isinstance(col, (int, float)):
+        try:
+            if np.isnan(col):
+                return None
+        except (TypeError, ValueError):
+            pass
+        return None  # bare numbers are years, not quarters
+
+    s = _clean_text(str(col))
+    if not s or s.lower() == "nan":
+        return None
+
+    # Skip TTM
+    if s.upper() in ("TTM", "LTM"):
+        return None
+
+    # Match "Mar 2024", "Mar-24", "Mar 22" etc.
+    m = _DATE_PATTERN.match(s)
+    if m:
+        month_str = m.group(1).capitalize()[:3]
+        year_str = m.group(2)
+        if len(year_str) == 2:
+            short_year = year_str
+        else:
+            short_year = year_str[-2:]
+        return f"{month_str}-{short_year}"
 
     return None
 
@@ -488,6 +539,7 @@ SHEET_PATTERNS = {
     "income_statement": ["profit & loss", "profit and loss", "income statement", "income", "p&l", "pl", "p & l"],
     "balance_sheet": ["balance sheet", "bs"],
     "cash_flow": ["cash flow", "cash flows", "cf", "cashflow"],
+    "quarterly_results": ["quarterly results", "quarterly", "quarters", "quarter"],
 }
 
 
@@ -499,6 +551,79 @@ def _match_sheet_type(sheet_name: str) -> str | None:
             if pattern in lower:
                 return stmt_type
     return None
+
+
+def _df_to_quarterly(df: pd.DataFrame) -> dict:
+    """Convert a DataFrame with quarterly columns to {quarter_label: {field: value}}.
+
+    Similar to _df_to_financials but uses _normalize_quarterly_period to
+    preserve the month-year granularity (e.g. 'Mar-22', 'Jun-22').
+    Skips percentage/ratio rows (values that are strings ending in %).
+    """
+    if df is None or df.empty:
+        return {}
+
+    df = df.copy()
+
+    # Use first column as row index if it's string-like
+    first_col = df.iloc[:, 0]
+    if first_col.dtype == object:
+        df = df.set_index(df.columns[0])
+
+    result = {}
+    _SKIP_COLUMNS = {"narration", "particulars", "report date", "date", "year",
+                     "period", "description", "item", "items", "ttm", "ltm"}
+
+    for col in df.columns:
+        quarter_label = _normalize_quarterly_period(col)
+        if quarter_label is None:
+            raw = _clean_text(str(col))
+            if not raw or raw.startswith("Unnamed") or raw.lower() in _SKIP_COLUMNS:
+                continue
+            if "%" in raw:
+                continue
+            # Skip entity/company name columns
+            if _is_entity_name(raw):
+                continue
+            quarter_label = raw
+
+        period_data = {}
+        for idx in df.index:
+            label = _clean_text(str(idx))
+            if not label or label.lower() in ("", "nan"):
+                continue
+            # Skip percentage/derived rows — we'll compute them ourselves
+            if any(k in label.lower() for k in [
+                "margin", "growth", "yoy", "opm", "pbt margin", "net profit margin",
+                "actual tax", "coverage", "ratio", "turnover", "days", "yield",
+            ]):
+                continue
+            mapped = _map_field(label)
+            val = _parse_number(df.at[idx, col])
+            if val is not None:
+                period_data[mapped] = val
+
+        if period_data:
+            result[quarter_label] = period_data
+
+    return result
+
+
+def _parse_quarterly_sheet(filepath: str, sheet_name: str) -> dict:
+    """Parse a quarterly results sheet from a screener.in Excel file.
+
+    Returns {quarter_label: {field_name: value}}.
+    """
+    try:
+        df = _read_sheet_with_header_detection(filepath, sheet_name)
+        if df is None or df.empty:
+            return {}
+        result = _df_to_quarterly(df)
+        logger.info("Parsed quarterly sheet '%s': %d quarters", sheet_name, len(result))
+        return result
+    except Exception as e:
+        logger.warning("Failed to parse quarterly sheet '%s': %s", sheet_name, e)
+        return {}
 
 
 def _read_sheet_with_header_detection(filepath: str, sheet_name: str) -> pd.DataFrame:
@@ -593,6 +718,7 @@ def parse_excel(filepath: str) -> dict:
         "income_statement": {},
         "balance_sheet": {},
         "cash_flow": {},
+        "quarterly_results": {},
         "metadata": {},
     }
 
@@ -616,7 +742,7 @@ def parse_excel(filepath: str) -> dict:
                      len(financials["balance_sheet"]),
                      len(financials["cash_flow"]))
 
-    # Step 2: Parse named sheets (Profit & Loss, Balance Sheet, Cash Flow)
+    # Step 2: Parse named sheets (Profit & Loss, Balance Sheet, Cash Flow, Quarterly)
     named_financials = {
         "income_statement": {},
         "balance_sheet": {},
@@ -626,7 +752,16 @@ def parse_excel(filepath: str) -> dict:
     for sheet_name in sheet_names:
         lower_name = sheet_name.lower().strip()
         # Skip non-financial sheets
-        if lower_name in ("data sheet", "customization", "quarters", "data"):
+        if lower_name in ("data sheet", "customization", "data"):
+            continue
+
+        # Handle quarterly sheets separately
+        if any(kw in lower_name for kw in ["quarterly results", "quarterly", "quarters", "quarter"]):
+            if not financials["quarterly_results"]:
+                quarterly_parsed = _parse_quarterly_sheet(filepath, sheet_name)
+                if quarterly_parsed:
+                    financials["quarterly_results"] = quarterly_parsed
+                    logger.info("Quarterly results from sheet '%s': %d quarters", sheet_name, len(quarterly_parsed))
             continue
 
         df = _read_sheet_with_header_detection(filepath, sheet_name)
@@ -907,8 +1042,16 @@ def _parse_data_sheet(df: pd.DataFrame, financials: dict):
             section_rows = []
             found_sections = True
             continue
-        elif any(lower.startswith(kw) for kw in ["quarter", "price", "derived"]):
-            # Skip non-financial sections (Quarters, PRICE:, DERIVED:)
+        elif any(lower.startswith(kw) for kw in ["quarter"]):
+            # Capture quarterly section data
+            if current_section and section_rows:
+                _flush_section(current_section, section_rows, df.columns, financials)
+            current_section = "quarterly_results"
+            section_rows = []
+            found_sections = True
+            continue
+        elif any(lower.startswith(kw) for kw in ["price", "derived"]):
+            # Skip price/derived sections
             if current_section and section_rows:
                 _flush_section(current_section, section_rows, df.columns, financials)
             current_section = None
@@ -1003,9 +1146,14 @@ def _flush_section(section: str, rows: list, columns, financials: dict):
                 return
             section_df = pd.DataFrame(data_rows.values, columns=new_headers)
 
-    _, parsed = _df_to_financials(section_df, section)
-    if parsed:
-        financials[section].update(parsed)
+    if section == "quarterly_results":
+        parsed = _df_to_quarterly(section_df)
+        if parsed:
+            financials["quarterly_results"].update(parsed)
+    else:
+        _, parsed = _df_to_financials(section_df, section)
+        if parsed:
+            financials[section].update(parsed)
 
 
 def _compute_derived_fields(financials: dict):

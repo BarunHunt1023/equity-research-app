@@ -17,6 +17,7 @@ const initialState = {
   relativeValuation: null,
   report: null,
   uploadedData: null,
+  screenerTables: null,
 }
 
 function analysisReducer(state, action) {
@@ -36,6 +37,7 @@ function analysisReducer(state, action) {
         historicalPrices: action.payload.historical_prices || [],
         ratios: action.payload.ratios,
         historicalMetrics: action.payload.historical_metrics || [],
+        screenerTables: action.payload.screener_tables ?? null,
       }
     case 'SET_FORECAST':
       return { ...state, forecast: action.payload, loading: false }
