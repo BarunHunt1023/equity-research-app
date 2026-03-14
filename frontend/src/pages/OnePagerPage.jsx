@@ -68,7 +68,7 @@ function MetricsTable({ title, rows, periods, sym, unit }) {
 
 export default function OnePagerPage() {
   const navigate = useNavigate()
-  const { ticker, companyInfo, financials, historicalPrices, ratios, historicalMetrics, dcf } = useAnalysis()
+  const { ticker, companyInfo, financials, historicalPrices, ratios, historicalMetrics, dcf, shareholders, news } = useAnalysis()
 
   const currency = companyInfo?.currency || 'INR'
   const unit = companyInfo?.unit || 'Cr'
@@ -106,7 +106,15 @@ export default function OnePagerPage() {
     }
 
     // EPS: try multiple field names (screener.in may use any of these)
-    const getEPS = p => getIS(p, 'Basic EPS') ?? getIS(p, 'EPS in Rs') ?? getIS(p, 'EPS') ?? getIS(p, 'Diluted EPS') ?? null
+    // Fallback: compute from Net Income / shares_outstanding when EPS is a formula cell (null in export)
+    const getEPS = p => {
+      const explicit = getIS(p, 'Basic EPS') ?? getIS(p, 'EPS in Rs') ?? getIS(p, 'EPS') ?? getIS(p, 'Diluted EPS')
+      if (explicit != null) return explicit
+      const ni = getIS(p, 'Net Income')
+      const shares = companyInfo?.shares_outstanding
+      if (ni != null && shares) return unit === 'Cr' ? (ni * 1e7) / shares : ni / shares
+      return null
+    }
 
     const epsGrowth = (period, idx) => {
       if (idx === 0) return null
@@ -191,12 +199,10 @@ export default function OnePagerPage() {
       }, fmtX),
       buildRow('Price to Book Value', p => {
         const equity = getEquity(p)
-        const shares = companyInfo?.shares_outstanding
-        const price = companyInfo?.current_price
-        if (!equity || !shares || !price) return null
-        // equity in Crores → convert to Rs; shares is absolute
-        const bvPerShare = unit === 'Cr' ? (equity * 1e7) / shares : equity / shares
-        return price / bvPerShare
+        // Use market cap / equity (both in same units) — avoids dependency on shares_outstanding
+        // which is often a formula cell in screener.in exports
+        if (!equity || !mktCap) return null
+        return mktCap / equity
       }, fmtX),
       buildRow('Return on Equity(%)', p => {
         const ni = getIS(p, 'Net Income')
@@ -205,7 +211,11 @@ export default function OnePagerPage() {
       }, fmtPct),
       buildRow('Return on Capital Employed(%)', p => {
         const oi = getIS(p, 'Operating Income')
-        const ta = getBS(p, 'Total Assets')
+        // Total Assets fallback: sum of NC Assets + Current Assets when direct lookup is ambiguous
+        const ncAssets = getBS(p, 'Total Non Current Assets')
+        const currAssets = getBS(p, 'Current Assets')
+        const ta = getBS(p, 'Total Assets') ??
+          ((ncAssets != null || currAssets != null) ? (ncAssets || 0) + (currAssets || 0) : null)
         if (!oi || !ta) return null
         const cl = getBS(p, 'Current Liabilities') ?? 0
         const capEmployed = ta - cl
@@ -381,15 +391,36 @@ export default function OnePagerPage() {
           </div>
         </div>
 
-        {/* Row 3: Shareholders placeholder + Shareholding pie */}
+        {/* Row 3: Shareholders + Shareholding pie */}
         <div className="grid grid-cols-2 gap-4 mt-3">
-          {/* Top 10 Shareholders placeholder */}
+          {/* Top 10 Shareholders */}
           <div>
             <div className="bg-[#1e3a5f] text-white text-xs font-bold px-2 py-1">Top 10 Shareholders</div>
-            <div className="border border-gray-200 p-3 text-xs text-gray-400 text-center min-h-[100px] flex items-center justify-center">
-              Shareholder data not available for uploaded financials.<br/>
-              Use ticker analysis for live shareholder data.
-            </div>
+            {shareholders && shareholders.length > 0 ? (
+              <div className="border border-gray-200">
+                <div className="flex text-xs font-semibold bg-gray-50 px-2 py-0.5 border-b border-gray-200">
+                  <span className="flex-1">Holder</span>
+                  <span className="w-16 text-right">% Out</span>
+                  <span className="w-20 text-right">Shares</span>
+                </div>
+                {shareholders.map((s, i) => (
+                  <div key={i} className="flex text-xs px-2 py-0.5 border-b border-gray-100">
+                    <span className="flex-1 truncate text-gray-800">{s.holder}</span>
+                    <span className="w-16 text-right text-gray-700">
+                      {s.pct_out != null ? `${(s.pct_out * 100).toFixed(2)}%` : '—'}
+                    </span>
+                    <span className="w-20 text-right text-gray-700">
+                      {s.shares != null ? (s.shares >= 1e7 ? `${(s.shares / 1e7).toFixed(2)} Cr` : s.shares.toLocaleString('en-IN')) : '—'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="border border-gray-200 p-3 text-xs text-gray-400 text-center min-h-[100px] flex items-center justify-center">
+                Shareholder data not available for uploaded financials.<br/>
+                Use ticker analysis for live shareholder data.
+              </div>
+            )}
           </div>
 
           {/* Shareholding Pattern placeholder */}
@@ -421,16 +452,8 @@ export default function OnePagerPage() {
           </div>
         </div>
 
-        {/* Row 4: Managerial Remuneration + Capital Structure */}
-        <div className="grid grid-cols-2 gap-4 mt-3">
-          {/* Managerial Remuneration placeholder */}
-          <div>
-            <div className="bg-[#1e3a5f] text-white text-xs font-bold px-2 py-1">Managerial Remuneration</div>
-            <div className="border border-gray-200 p-3 text-xs text-gray-400 text-center">
-              Not available for uploaded financials.
-            </div>
-          </div>
-
+        {/* Row 4: Capital Structure (full width) */}
+        <div className="mt-3">
           {/* Capital Structure */}
           <div>
             <div className="bg-[#1e3a5f] text-white text-xs font-bold px-2 py-1">Capital Structure</div>
@@ -456,7 +479,22 @@ export default function OnePagerPage() {
         <div className="mt-3">
           <div className="bg-[#1e3a5f] text-white text-xs font-bold px-2 py-1">Recent Updates</div>
           <div className="border border-gray-200 p-3 text-xs text-gray-600 space-y-2">
-            {companyInfo?.description && companyInfo.description !== `Financial data uploaded from ${companyInfo?.description?.split('from ')[1]}` ? (
+            {news && news.length > 0 ? (
+              news.map((article, i) => (
+                <div key={i} className="border-b border-gray-100 pb-1 last:border-0 last:pb-0">
+                  <a href={article.link} target="_blank" rel="noopener noreferrer"
+                    className="font-medium text-blue-700 hover:underline">
+                    {article.title}
+                  </a>
+                  <div className="text-gray-400 mt-0.5">
+                    {article.publisher}
+                    {article.published_at && (
+                      <span> · {new Date(article.published_at * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : companyInfo?.description && !companyInfo.description.startsWith('Financial data uploaded from') ? (
               <p>{companyInfo.description}</p>
             ) : (
               <p className="text-gray-400 italic">

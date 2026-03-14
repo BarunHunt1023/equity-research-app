@@ -314,6 +314,66 @@ def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
     return records
 
 
+def get_shareholders(ticker: str) -> list:
+    """Fetch top 10 institutional shareholders from Yahoo Finance."""
+    cache_key = f"shareholders:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    def _fetch():
+        _rate_limit()
+        t = yf.Ticker(ticker)
+        df = t.institutional_holders
+        if df is None or df.empty:
+            return []
+        result = []
+        for _, row in df.head(10).iterrows():
+            result.append({
+                "holder": str(row.get("Holder", "")),
+                "shares": _safe_val(row.get("Shares")),
+                "pct_out": _safe_val(row.get("% Out")),
+                "value": _safe_val(row.get("Value")),
+            })
+        return result
+
+    try:
+        result = _retry(_fetch)
+    except Exception:
+        result = []
+    _cache_set(cache_key, result)
+    return result
+
+
+def get_news(ticker: str, limit: int = 5) -> list:
+    """Fetch recent news articles from Yahoo Finance."""
+    cache_key = f"news:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    def _fetch():
+        _rate_limit()
+        t = yf.Ticker(ticker)
+        articles = t.news or []
+        result = []
+        for article in articles[:limit]:
+            result.append({
+                "title": article.get("title", ""),
+                "publisher": article.get("publisher", ""),
+                "link": article.get("link", ""),
+                "published_at": article.get("providerPublishTime"),
+            })
+        return result
+
+    try:
+        result = _retry(_fetch)
+    except Exception:
+        result = []
+    _cache_set(cache_key, result)
+    return result
+
+
 def get_risk_free_rate() -> float:
     """Fetch 10-Year Treasury yield as risk-free rate proxy."""
     cached = _cache_get("risk_free_rate")
