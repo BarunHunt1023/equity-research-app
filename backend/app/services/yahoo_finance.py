@@ -329,10 +329,14 @@ def get_shareholders(ticker: str) -> list:
             return []
         result = []
         for _, row in df.head(10).iterrows():
+            # Column name for % held varies by yfinance version: '% Out', 'pctHeld', 'Pct Held'
+            pct = row.get("% Out") if "% Out" in row.index else (
+                row.get("pctHeld") if "pctHeld" in row.index else row.get("Pct Held")
+            )
             result.append({
                 "holder": str(row.get("Holder", "")),
                 "shares": _safe_val(row.get("Shares")),
-                "pct_out": _safe_val(row.get("% Out")),
+                "pct_out": _safe_val(pct),
                 "value": _safe_val(row.get("Value")),
             })
         return result
@@ -346,7 +350,12 @@ def get_shareholders(ticker: str) -> list:
 
 
 def get_news(ticker: str, limit: int = 5) -> list:
-    """Fetch recent news articles from Yahoo Finance."""
+    """Fetch recent news articles from Yahoo Finance.
+
+    yfinance >= 0.2.54 wraps article fields inside a nested 'content' dict.
+    Older versions use flat top-level keys (title, publisher, link, providerPublishTime).
+    This function handles both formats.
+    """
     cache_key = f"news:{ticker}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -358,12 +367,33 @@ def get_news(ticker: str, limit: int = 5) -> list:
         articles = t.news or []
         result = []
         for article in articles[:limit]:
-            result.append({
-                "title": article.get("title", ""),
-                "publisher": article.get("publisher", ""),
-                "link": article.get("link", ""),
-                "published_at": article.get("providerPublishTime"),
-            })
+            # New format (yfinance >= 0.2.54): fields nested under 'content'
+            content = article.get("content") or {}
+
+            title = content.get("title") or article.get("title", "")
+
+            publisher_raw = content.get("publisher") or content.get("provider") or article.get("publisher", "")
+            if isinstance(publisher_raw, dict):
+                publisher = publisher_raw.get("displayName") or publisher_raw.get("name", "")
+            else:
+                publisher = str(publisher_raw) if publisher_raw else ""
+
+            link = (
+                (content.get("canonicalUrl") or {}).get("url")
+                or content.get("url")
+                or content.get("link")
+                or article.get("link", "")
+            )
+
+            pub_time = content.get("pubDate") or article.get("providerPublishTime")
+
+            if title:
+                result.append({
+                    "title": title,
+                    "publisher": publisher,
+                    "link": link,
+                    "published_at": pub_time,
+                })
         return result
 
     try:
