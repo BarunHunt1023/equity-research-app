@@ -175,6 +175,19 @@ async def upload_file(
         # Build screener-style tables
         screener_tables = build_screener_tables(financials, quarterly_data, company_info)
 
+        # Fetch shareholders and news when ticker is provided
+        shareholders = []
+        news = []
+        if yf_ticker:
+            try:
+                shareholders = yahoo_finance.get_shareholders(yf_ticker)
+            except Exception:
+                pass
+            try:
+                news = yahoo_finance.get_news(yf_ticker)
+            except Exception:
+                pass
+
         # Return same format as /analyze endpoint
         return {
             "company_info": company_info,
@@ -183,6 +196,8 @@ async def upload_file(
             "ratios": ratios,
             "historical_metrics": historical,
             "screener_tables": screener_tables,
+            "shareholders": shareholders,
+            "news": news,
         }
 
     except Exception as e:

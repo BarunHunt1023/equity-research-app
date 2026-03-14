@@ -29,6 +29,18 @@ def analyze(req: AnalyzeRequest):
             quarterly_data = {}
         screener_tables = build_screener_tables(financials, quarterly_data, company_info)
 
+        shareholders = []
+        try:
+            shareholders = yahoo_finance.get_shareholders(ticker)
+        except Exception:
+            pass
+
+        news = []
+        try:
+            news = yahoo_finance.get_news(ticker)
+        except Exception:
+            pass
+
         return {
             "company_info": company_info,
             "financials": financials,
@@ -36,6 +48,8 @@ def analyze(req: AnalyzeRequest):
             "ratios": ratios,
             "historical_metrics": historical,
             "screener_tables": screener_tables,
+            "shareholders": shareholders,
+            "news": news,
         }
     except json.JSONDecodeError:
         raise HTTPException(
