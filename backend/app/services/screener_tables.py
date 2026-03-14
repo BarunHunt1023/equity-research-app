@@ -645,15 +645,13 @@ def build_balance_sheet(annual_bs: dict, annual_income: dict, company_info: dict
         {"label": "Other Liabilities",              "type": "normal",  "values": r(other_liab),       "has_ltm": False},
         {"label": "Total Non-Current Liabilities",  "type": "bold",    "values": r(nc_liab_vals),     "has_ltm": False},
         {"label": "",                               "type": "section", "values": [None]*n},
-        # Total Liabilities = Total Assets − Total Equity  (identity always holds)
-        {"label": "Total Liabilities",              "type": "bold",    "values": r(total_liab),       "has_ltm": False},
-        {"label": "",                               "type": "section", "values": [None]*n},
-        # ════════════════════════════════════════
-        # EQUITY
-        # ════════════════════════════════════════
+        # Equity (sources of funds — shown below NCL, before the grand total)
         {"label": "Equity Share Capital",           "type": "normal",  "values": r(eq_cap),           "has_ltm": False},
         {"label": "Reserves",                       "type": "normal",  "values": r(reserves),         "has_ltm": False},
         {"label": "Total Equity",                   "type": "bold",    "values": r(total_equity_vals), "has_ltm": False},
+        {"label": "",                               "type": "section", "values": [None]*n},
+        # Grand total: CL + NCL + Equity = Total Assets (identity always holds)
+        {"label": "Total Liabilities",              "type": "bold",    "values": r(total_assets),     "has_ltm": False},
         {"label": "",                               "type": "section", "values": [None]*n},
         # ════════════════════════════════════════
         # WORKING CAPITAL & KEY RATIOS
