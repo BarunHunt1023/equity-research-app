@@ -105,11 +105,14 @@ export default function OnePagerPage() {
       return null
     }
 
+    // EPS: try multiple field names (screener.in may use any of these)
+    const getEPS = p => getIS(p, 'Basic EPS') ?? getIS(p, 'EPS in Rs') ?? getIS(p, 'EPS') ?? getIS(p, 'Diluted EPS') ?? null
+
     const epsGrowth = (period, idx) => {
       if (idx === 0) return null
-      const prev = getIS(last5[idx - 1], 'Basic EPS')
-      const curr = getIS(period, 'Basic EPS')
-      if (prev && curr && prev !== 0) return (curr - prev) / Math.abs(prev)
+      const prev = getEPS(last5[idx - 1])
+      const curr = getEPS(period)
+      if (prev != null && curr != null && prev !== 0) return (curr - prev) / Math.abs(prev)
       return null
     }
 
@@ -140,7 +143,7 @@ export default function OnePagerPage() {
         const ni = getIS(p, 'Net Income')
         return rev && ni ? ni / rev : null
       }, fmtPct),
-      buildRow('Earnings Per Share (in Rs)', p => getIS(p, 'Basic EPS'), v => `${sym} ${fmtNum(v, 1)}`),
+      buildRow('Earnings Per Share (in Rs)', p => getEPS(p), v => `${sym} ${fmtNum(v, 1)}`),
       {
         label: 'EPS Growth (YOY)%',
         italic: true,
@@ -148,57 +151,83 @@ export default function OnePagerPage() {
       },
     ]
 
+    // Equity: try 'Stockholders Equity', fall back to Common Stock + Retained Earnings
+    const getEquity = p => {
+      const se = getBS(p, 'Stockholders Equity')
+      if (se != null) return se
+      const cs = getBS(p, 'Common Stock')
+      const re = getBS(p, 'Retained Earnings')
+      if (cs != null || re != null) return (cs || 0) + (re || 0)
+      return null
+    }
+
     // Build Key Financial Ratios rows
     const ratiosRows = [
       buildRow('Price to Earnings', p => {
-        const eps = getIS(p, 'Basic EPS')
+        const eps = getEPS(p)
         const price = companyInfo?.current_price
         return eps && price ? price / eps : null
       }, fmtX),
       buildRow('EV/EBITDA', p => {
         const ebitda = getIS(p, 'EBITDA')
-        const ev = dcf?.enterprise_value || companyInfo?.enterprise_value
-        return ebitda && ev ? ev / ebitda : null
+        // EV in same unit as EBITDA; for uploads EV comes from YF (absolute INR) but
+        // financials are in Crores — convert EV to Crores if needed
+        const evRaw = dcf?.enterprise_value || companyInfo?.enterprise_value
+        if (!ebitda || !evRaw) return null
+        const ev = unit === 'Cr' ? evRaw / 1e7 : evRaw
+        return ev / ebitda
       }, fmtX),
       buildRow('EV/Sales', p => {
         const rev = getIS(p, 'Total Revenue')
-        const ev = dcf?.enterprise_value || companyInfo?.enterprise_value
-        return rev && ev ? ev / rev : null
+        const evRaw = dcf?.enterprise_value || companyInfo?.enterprise_value
+        if (!rev || !evRaw) return null
+        const ev = unit === 'Cr' ? evRaw / 1e7 : evRaw
+        return ev / rev
       }, fmtX),
       buildRow('Price to Book Value', p => {
-        const equity = getBS(p, 'Stockholders Equity')
+        const equity = getEquity(p)
         const shares = companyInfo?.shares_outstanding
         const price = companyInfo?.current_price
-        return equity && shares && price ? price / (equity / shares) : null
+        if (!equity || !shares || !price) return null
+        // equity in Crores → convert to Rs; shares is absolute
+        const bvPerShare = unit === 'Cr' ? (equity * 1e7) / shares : equity / shares
+        return price / bvPerShare
       }, fmtX),
       buildRow('Return on Equity(%)', p => {
         const ni = getIS(p, 'Net Income')
-        const eq = getBS(p, 'Stockholders Equity')
-        return ni && eq ? ni / eq : null
+        const eq = getEquity(p)
+        return ni != null && eq ? ni / eq : null
       }, fmtPct),
       buildRow('Return on Capital Employed(%)', p => {
         const oi = getIS(p, 'Operating Income')
         const ta = getBS(p, 'Total Assets')
-        const cl = getBS(p, 'Current Liabilities')
-        return oi && ta && cl ? oi / (ta - cl) : null
+        if (!oi || !ta) return null
+        const cl = getBS(p, 'Current Liabilities') ?? 0
+        const capEmployed = ta - cl
+        return capEmployed > 0 ? oi / capEmployed : null
       }, fmtPct),
     ]
 
     // Capital Structure
     const latestBS = last5.length > 0 ? last5[last5.length - 1] : null
-    const mktCap = companyInfo?.market_cap
+    // market_cap: from metadata or YF (YF gives INR, screener shows Crores)
+    const mktCapRaw = companyInfo?.market_cap
+    const mktCap = mktCapRaw != null ? (unit === 'Cr' && mktCapRaw > 1e9 ? mktCapRaw / 1e7 : mktCapRaw) : null
     const cash = latestBS ? getBS(latestBS, 'Cash And Cash Equivalents') : null
     const totalDebt = latestBS ? getBS(latestBS, 'Total Debt') : null
-    const ev = dcf?.enterprise_value || companyInfo?.enterprise_value ||
-      (mktCap != null && cash != null && totalDebt != null ? mktCap - cash + totalDebt : null)
+    // EV from YF/DCF is in INR; convert to Crores for display consistency
+    const evRaw = dcf?.enterprise_value || companyInfo?.enterprise_value
+    const ev = evRaw != null
+      ? (unit === 'Cr' && evRaw > 1e9 ? evRaw / 1e7 : evRaw)
+      : (mktCap != null && cash != null && totalDebt != null ? mktCap - cash + totalDebt : null)
 
     const capitalStructure = {
       currentPrice: companyInfo?.current_price,
-      sharesOutstanding: companyInfo?.shares_outstanding,
-      marketCap: mktCap,
+      sharesOutstanding: companyInfo?.shares_outstanding,  // absolute number
+      marketCap: mktCap,   // in display units (Cr)
       cash,
       totalDebt,
-      enterpriseValue: ev,
+      enterpriseValue: ev, // in display units (Cr)
     }
 
     return { periods: last5, metricsRows, ratiosRows, capitalStructure }
@@ -417,7 +446,7 @@ export default function OnePagerPage() {
             <div className="border border-gray-200">
               {[
                 ['Current Share Price', capitalStructure.currentPrice != null ? `${sym} ${fmtNum(capitalStructure.currentPrice)}` : '\u2014'],
-                ['No of Shares o/s', capitalStructure.sharesOutstanding != null ? capitalStructure.sharesOutstanding.toLocaleString('en-IN') : '\u2014'],
+                ['No of Shares o/s', capitalStructure.sharesOutstanding != null ? (capitalStructure.sharesOutstanding >= 1e7 ? `${(capitalStructure.sharesOutstanding / 1e7).toFixed(2)} Cr` : capitalStructure.sharesOutstanding.toLocaleString('en-IN')) : '\u2014'],
                 ['Market Capitalization', capitalStructure.marketCap != null ? fmtCurrency(capitalStructure.marketCap, sym, unit) : '\u2014'],
                 ['Less: Cash & Equivalents', capitalStructure.cash != null ? fmtCurrency(capitalStructure.cash, sym, unit) : '\u2014'],
                 ['Add: Total Debt', capitalStructure.totalDebt != null ? fmtCurrency(capitalStructure.totalDebt, sym, unit) : '\u2014'],

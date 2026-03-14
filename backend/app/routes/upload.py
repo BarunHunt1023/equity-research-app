@@ -146,6 +146,32 @@ async def upload_file(
             "description": f"Financial data uploaded from {file.filename}",
         }
 
+        # Enrich company_info from Yahoo Finance when ticker is provided.
+        # screener.in formula cells (price, market cap, shares) are often empty when
+        # the file is read programmatically — Yahoo Finance fills those gaps.
+        if yf_ticker:
+            try:
+                yf_info = yahoo_finance.get_company_info(yf_ticker)
+                yf_fill_fields = [
+                    "current_price", "market_cap", "enterprise_value",
+                    "shares_outstanding", "beta", "trailing_pe", "forward_pe",
+                    "dividend_yield", "fifty_two_week_high", "fifty_two_week_low",
+                    "sector", "industry", "country",
+                ]
+                for field in yf_fill_fields:
+                    if company_info.get(field) is None and yf_info.get(field) is not None:
+                        company_info[field] = yf_info[field]
+                # Use YF name only if metadata gave us nothing useful
+                if not company_name and yf_info.get("name"):
+                    company_info["name"] = yf_info["name"]
+                if not company_info.get("description") or company_info["description"].startswith("Financial data"):
+                    if yf_info.get("description"):
+                        company_info["description"] = yf_info["description"]
+                logger.info("Yahoo Finance company info enriched for %s: price=%s, mktcap=%s",
+                            yf_ticker, company_info.get("current_price"), company_info.get("market_cap"))
+            except Exception as yf_err:
+                logger.warning("Yahoo Finance company info skipped for %s: %s", yf_ticker, yf_err)
+
         # Build screener-style tables
         screener_tables = build_screener_tables(financials, quarterly_data, company_info)
 
