@@ -59,7 +59,17 @@ _FIELD_MAP_RAW = {
     "Other Income": "Other Income",
     "EPS": "Basic EPS",
     "EPS in Rs": "Basic EPS",
+    "EPS in Rs.": "Basic EPS",
+    "EPS (in Rs)": "Basic EPS",
+    "EPS (in Rs.)": "Basic EPS",
+    "EPS in \u20b9": "Basic EPS",
+    "EPS (\u20b9)": "Basic EPS",
     "Basic EPS": "Basic EPS",
+    "Diluted EPS": "Basic EPS",
+    "Earnings Per Share": "Basic EPS",
+    "Earnings Per Share (in Rs)": "Basic EPS",
+    "Earnings Per Share (in Rs.)": "Basic EPS",
+    "Earnings Per Share (\u20b9)": "Basic EPS",
     "Gross Profit": "Gross Profit",
     "Dividend Payout": "Dividend Payout",
     "Dividend Amount": "Dividend Payout",
@@ -165,6 +175,14 @@ _FIELD_MAP_RAW = {
     "Contingent Liabilities": "Contingent Liabilities",
     "Book Value": "Book Value",
     "Face Value": "Face Value",
+    # Shares outstanding (screener.in stores in Crores of shares)
+    "Number of Equity Shares": "Shares Outstanding",
+    "Number of equity shares": "Shares Outstanding",
+    "Equity Shares Outstanding": "Shares Outstanding",
+    "Shares Outstanding": "Shares Outstanding",
+    "No. of Equity Shares": "Shares Outstanding",
+    "No of Equity Shares": "Shares Outstanding",
+    "Number of shares": "Shares Outstanding",
 }
 
 # Build case-insensitive lookup: normalized_key → mapped_value

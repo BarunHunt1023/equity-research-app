@@ -172,6 +172,21 @@ async def upload_file(
             except Exception as yf_err:
                 logger.warning("Yahoo Finance company info skipped for %s: %s", yf_ticker, yf_err)
 
+        # Extract shares_outstanding from balance sheet if not yet available.
+        # screener.in stores "Number of Equity Shares" in the BS in Crores of shares.
+        # Use the most recent period's value to populate company-level shares_outstanding.
+        if company_info.get("shares_outstanding") is None:
+            bs = financials.get("balance_sheet", {})
+            sorted_periods = sorted(bs.keys(), reverse=True)
+            for period in sorted_periods:
+                shares_cr = bs[period].get("Shares Outstanding")
+                if shares_cr and shares_cr > 0:
+                    # 1 Cr = 10^7 → convert to absolute count
+                    company_info["shares_outstanding"] = shares_cr * 1e7
+                    logger.info("Extracted shares_outstanding from BS period %s: %s Cr = %s",
+                                period, shares_cr, company_info["shares_outstanding"])
+                    break
+
         # Build screener-style tables
         screener_tables = build_screener_tables(financials, quarterly_data, company_info)
 

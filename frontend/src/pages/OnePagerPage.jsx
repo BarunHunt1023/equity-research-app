@@ -106,11 +106,14 @@ export default function OnePagerPage() {
     }
 
     // EPS: try multiple field names (screener.in may use any of these)
-    // Fallback: compute from Net Income / shares_outstanding when EPS is a formula cell (null in export)
+    // Fallback 1: Net Income / Shares Outstanding from BS (screener stores shares in Cr = same unit)
+    // Fallback 2: Net Income / companyInfo.shares_outstanding (absolute count from YF)
     const getEPS = p => {
       const explicit = getIS(p, 'Basic EPS') ?? getIS(p, 'EPS in Rs') ?? getIS(p, 'EPS') ?? getIS(p, 'Diluted EPS')
       if (explicit != null) return explicit
       const ni = getIS(p, 'Net Income')
+      const sharesCr = getBS(p, 'Shares Outstanding')
+      if (ni != null && sharesCr && sharesCr > 0) return ni / sharesCr
       const shares = companyInfo?.shares_outstanding
       if (ni != null && shares) return unit === 'Cr' ? (ni * 1e7) / shares : ni / shares
       return null
