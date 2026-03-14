@@ -75,12 +75,51 @@ def compute_ratios(financials: dict) -> dict:
 
     total_assets = _get(bs_latest, "Total Assets")
     total_liabilities = _get(bs_latest, "Total Liabilities Net Minority Interest")
+    # Equity: try standard key first, then fall back to Common Stock + Retained Earnings
+    # (screener.in stores equity components separately)
     equity = _get(bs_latest, "Stockholders Equity")
+    if equity is None:
+        common_stock = _get(bs_latest, "Common Stock")
+        retained = _get(bs_latest, "Retained Earnings")
+        if common_stock is not None or retained is not None:
+            equity = (common_stock or 0) + (retained or 0)
+
     current_assets = _get(bs_latest, "Current Assets")
     current_liabilities = _get(bs_latest, "Current Liabilities")
     cash = _get(bs_latest, "Cash And Cash Equivalents")
     total_debt = _get(bs_latest, "Total Debt")
     inventory = _get(bs_latest, "Inventory", 0)
+
+    # Total assets fallback: NC Assets + Current Assets (matches screener.in component structure)
+    if total_assets is None:
+        ppe = _get(bs_latest, "Property Plant And Equipment")
+        cwip = _get(bs_latest, "Capital Work In Progress")
+        inv_bs = _get(bs_latest, "Investments")
+        other_a = _get(bs_latest, "Other Assets")
+        cash_bs = _get(bs_latest, "Cash And Cash Equivalents")
+        debtors = _get(bs_latest, "Net Receivables")
+        inv_ca = _get(bs_latest, "Inventory")
+        nc_sum = (ppe or 0) + (cwip or 0) + (inv_bs or 0) + (other_a or 0)
+        ca_sum = (cash_bs or 0) + (debtors or 0) + (inv_ca or 0)
+        if nc_sum or ca_sum:
+            total_assets = nc_sum + ca_sum
+
+    # Current assets fallback: sum of known current items
+    if current_assets is None:
+        cash_bs = _get(bs_latest, "Cash And Cash Equivalents")
+        debtors = _get(bs_latest, "Net Receivables")
+        inv_ca = _get(bs_latest, "Inventory")
+        if cash_bs is not None or debtors is not None or inv_ca is not None:
+            current_assets = (cash_bs or 0) + (debtors or 0) + (inv_ca or 0)
+
+    # Current liabilities fallback: Total Assets - Equity - NCL
+    if current_liabilities is None and total_assets is not None and equity is not None:
+        borrowings = _get(bs_latest, "Total Debt")
+        other_liab = _get(bs_latest, "Other Liabilities")
+        ncl = (borrowings or 0) + (other_liab or 0)
+        cl_residual = total_assets - equity - ncl
+        if cl_residual >= 0:
+            current_liabilities = cl_residual
 
     capex = _get(cf_latest, "Capital Expenditure")
     operating_cf = _get(cf_latest, "Operating Cash Flow")

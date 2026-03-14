@@ -117,8 +117,10 @@ def _build_trend_values(series: list, sorted_periods: list, year_windows=(9, 7, 
     if n < 2:
         return [None, None, None, None]
 
-    # Latest value (last period)
+    # Latest value (last period) — if None, no CAGR can be computed
     end_val = series[-1]
+    if end_val is None:
+        return [None, None, None, None]
 
     results = []
     for years in year_windows:
@@ -292,9 +294,8 @@ def build_profit_loss(annual_income: dict, company_info: dict, shares_outstandin
     pbt_vals  = yseries("Pretax Income")
     tax_vals  = yseries("Tax Provision")
     np_vals   = yseries("Net Income")
-    eps_vals  = yseries("Basic EPS")
+    eps_vals  = yseries("Basic EPS", "EPS", "EPS in Rs", "Diluted EPS", "Earnings Per Share")
     div_vals  = yseries("Dividend Payout")
-    ret_earn_vals = yseries("Retained Earnings")
 
     # Expense breakdown fields
     total_exp_vals  = yseries("Total Expenses")
@@ -351,10 +352,8 @@ def build_profit_loss(annual_income: dict, company_info: dict, shares_outstandin
     if market_cap is not None:
         mktcap_vals[-1] = _round_val(market_cap)
 
-    # LTM = last annual period (no separate LTM computation for annual data)
-    # Append LTM column = same as last period (duplicate to show clearly)
     def with_ltm(vals):
-        return list(vals) + [vals[-1] if vals else None]
+        return list(vals)  # LTM column removed — no duplicate last-period column
 
     def round_series(vals):
         return [_round_val(v) for v in vals]
@@ -365,8 +364,8 @@ def build_profit_loss(annual_income: dict, company_info: dict, shares_outstandin
     def ratio_series(vals):
         return [round(v, 1) if v is not None else None for v in vals]
 
-    columns = sorted_y + ["LTM"]
-    has_ltm = True
+    columns = sorted_y
+    has_ltm = False
 
     # Helper: only include a row if it has at least one non-None value
     def has_data(vals):
@@ -405,7 +404,6 @@ def build_profit_loss(annual_income: dict, company_info: dict, shares_outstandin
         {"label": "Price",                   "type": "normal", "values": with_ltm(ratio_series(price_vals)), "has_ltm": has_ltm},
         {"label": "Dividend Payout",         "type": "normal", "values": with_ltm(pct_series([_pct(div_vals[i], np_vals[i]) for i in range(n)])), "has_ltm": has_ltm},
         {"label": "Market Cap",              "type": "normal", "values": with_ltm(mktcap_vals), "has_ltm": has_ltm},
-        {"label": "Retained Earnings",       "type": "normal", "values": with_ltm(round_series(ret_earn_vals)), "has_ltm": has_ltm},
     ]
 
     trend_rows = _build_trend_rows(rows, sorted_y)
@@ -654,10 +652,9 @@ def build_balance_sheet(annual_bs: dict, annual_income: dict, company_info: dict
         {"label": "Total Liabilities",              "type": "bold",    "values": r(total_assets),     "has_ltm": False},
         {"label": "",                               "type": "section", "values": [None]*n},
         # ════════════════════════════════════════
-        # WORKING CAPITAL & KEY RATIOS
         # ════════════════════════════════════════
-        {"label": "Working Capital",                "type": "normal",  "values": wc_vals,             "has_ltm": False},
-        {"label": "",                               "type": "section", "values": [None]*n},
+        # KEY RATIOS
+        # ════════════════════════════════════════
         {"label": "Debtor Days",                    "type": "italic",  "values": p(debtor_days)},
         {"label": "Inventory Turnover",             "type": "italic",  "values": p(inv_turnover)},
         {"label": "Net Fixed Asset Turnover",       "type": "italic",  "values": p(fa_turnover)},
