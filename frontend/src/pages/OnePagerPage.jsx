@@ -161,6 +161,17 @@ export default function OnePagerPage() {
       return null
     }
 
+    // Compute EV early so ratio rows can use it
+    const latestBS = last5.length > 0 ? last5[last5.length - 1] : null
+    const mktCapRaw = companyInfo?.market_cap
+    const mktCap = mktCapRaw != null ? (unit === 'Cr' && mktCapRaw > 1e9 ? mktCapRaw / 1e7 : mktCapRaw) : null
+    const cash = latestBS ? getBS(latestBS, 'Cash And Cash Equivalents') : null
+    const totalDebt = latestBS ? getBS(latestBS, 'Total Debt') : null
+    const evRaw = dcf?.enterprise_value || companyInfo?.enterprise_value
+    const evForRatios = evRaw != null
+      ? (unit === 'Cr' && evRaw > 1e9 ? evRaw / 1e7 : evRaw)
+      : (mktCap != null && cash != null && totalDebt != null ? mktCap - cash + totalDebt : null)
+
     // Build Key Financial Ratios rows
     const ratiosRows = [
       buildRow('Price to Earnings', p => {
@@ -170,19 +181,13 @@ export default function OnePagerPage() {
       }, fmtX),
       buildRow('EV/EBITDA', p => {
         const ebitda = getIS(p, 'EBITDA')
-        // EV in same unit as EBITDA; for uploads EV comes from YF (absolute INR) but
-        // financials are in Crores — convert EV to Crores if needed
-        const evRaw = dcf?.enterprise_value || companyInfo?.enterprise_value
-        if (!ebitda || !evRaw) return null
-        const ev = unit === 'Cr' ? evRaw / 1e7 : evRaw
-        return ev / ebitda
+        if (!ebitda || !evForRatios) return null
+        return evForRatios / ebitda
       }, fmtX),
       buildRow('EV/Sales', p => {
         const rev = getIS(p, 'Total Revenue')
-        const evRaw = dcf?.enterprise_value || companyInfo?.enterprise_value
-        if (!rev || !evRaw) return null
-        const ev = unit === 'Cr' ? evRaw / 1e7 : evRaw
-        return ev / rev
+        if (!rev || !evForRatios) return null
+        return evForRatios / rev
       }, fmtX),
       buildRow('Price to Book Value', p => {
         const equity = getEquity(p)
@@ -209,25 +214,13 @@ export default function OnePagerPage() {
     ]
 
     // Capital Structure
-    const latestBS = last5.length > 0 ? last5[last5.length - 1] : null
-    // market_cap: from metadata or YF (YF gives INR, screener shows Crores)
-    const mktCapRaw = companyInfo?.market_cap
-    const mktCap = mktCapRaw != null ? (unit === 'Cr' && mktCapRaw > 1e9 ? mktCapRaw / 1e7 : mktCapRaw) : null
-    const cash = latestBS ? getBS(latestBS, 'Cash And Cash Equivalents') : null
-    const totalDebt = latestBS ? getBS(latestBS, 'Total Debt') : null
-    // EV from YF/DCF is in INR; convert to Crores for display consistency
-    const evRaw = dcf?.enterprise_value || companyInfo?.enterprise_value
-    const ev = evRaw != null
-      ? (unit === 'Cr' && evRaw > 1e9 ? evRaw / 1e7 : evRaw)
-      : (mktCap != null && cash != null && totalDebt != null ? mktCap - cash + totalDebt : null)
-
     const capitalStructure = {
       currentPrice: companyInfo?.current_price,
       sharesOutstanding: companyInfo?.shares_outstanding,  // absolute number
       marketCap: mktCap,   // in display units (Cr)
       cash,
       totalDebt,
-      enterpriseValue: ev, // in display units (Cr)
+      enterpriseValue: evForRatios, // in display units (Cr)
     }
 
     return { periods: last5, metricsRows, ratiosRows, capitalStructure }
@@ -403,7 +396,7 @@ export default function OnePagerPage() {
           <div>
             <div className="bg-[#1e3a5f] text-white text-xs font-bold px-2 py-1">Shareholding Pattern</div>
             <div className="border border-gray-200 p-2 flex items-center justify-center min-h-[100px]">
-              <ResponsiveContainer width="100%" height={100}>
+              <ResponsiveContainer width="100%" height={120}>
                 <PieChart>
                   <Pie
                     data={[
@@ -412,11 +405,9 @@ export default function OnePagerPage() {
                       { name: 'DII', value: 20 },
                       { name: 'Public', value: 15 },
                     ]}
-                    cx="50%" cy="50%"
-                    outerRadius={35}
+                    cx="50%" cy="45%"
+                    outerRadius={38}
                     dataKey="value"
-                    label={({ name }) => name}
-                    labelLine={false}
                   >
                     <Cell fill="#1e3a5f" />
                     <Cell fill="#ef4444" />
