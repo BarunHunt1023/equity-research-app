@@ -185,7 +185,10 @@ export default function OnePagerPage() {
       buildRow('Price to Earnings', p => {
         const eps = getEPS(p)
         const price = companyInfo?.current_price
-        return eps && price ? price / eps : null
+        if (eps != null && price) return price / eps
+        // Fallback: use trailing_pe from Yahoo Finance for the most recent period
+        if (p === last5[last5.length - 1] && companyInfo?.trailing_pe) return companyInfo.trailing_pe
+        return null
       }, fmtX),
       buildRow('EV/EBITDA', p => {
         const ebitda = getIS(p, 'EBITDA')
@@ -489,7 +492,13 @@ export default function OnePagerPage() {
                   <div className="text-gray-400 mt-0.5">
                     {article.publisher}
                     {article.published_at && (
-                      <span> · {new Date(article.published_at * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                      <span> · {(() => {
+                        // published_at can be a Unix timestamp (old yfinance) or ISO string (new yfinance)
+                        const d = typeof article.published_at === 'number'
+                          ? new Date(article.published_at * 1000)
+                          : new Date(article.published_at)
+                        return isNaN(d) ? '' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                      })()}</span>
                     )}
                   </div>
                 </div>
