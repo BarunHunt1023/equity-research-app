@@ -504,12 +504,11 @@ def _df_to_financials(df: pd.DataFrame, statement_type: str = None) -> tuple[str
             # Skip known non-period label columns
             if raw.lower() in _SKIP_COLUMNS:
                 continue
-            # Skip entity/company name columns
+            # Skip entity/company name columns entirely — don't pollute periods with "Latest"
             if _is_entity_name(raw):
                 entity_name = raw
                 logger.info("Skipping entity name column: %s", raw)
-                # Still parse the data but use "Latest" as the period
-                period = "Latest"
+                continue
             else:
                 period = raw
         elif period == "TTM":
