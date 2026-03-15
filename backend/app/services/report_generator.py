@@ -89,7 +89,7 @@ def _claude(prompt: str, max_tokens: int) -> str:
     """Helper: run a single Claude CLI call and return the text response."""
     env = {**os.environ, 'PATH': f'/opt/node22/bin:{os.environ.get("PATH", "")}'}
     result = subprocess.run(
-        ['/opt/node22/bin/claude', '--model', 'claude-sonnet-4-6', '-p', prompt],
+        ['claude', '--model', 'claude-sonnet-4-6', '-p', prompt],
         capture_output=True,
         text=True,
         timeout=300,
