@@ -87,7 +87,7 @@ def _build_data_summary(company_info, ratios, forecast, dcf, relative_val):
 def _claude(prompt: str, max_tokens: int) -> str:
     """Helper: run a single Claude CLI call and return the text response."""
     result = subprocess.run(
-        ['claude', '--model', 'claude-sonnet-4-6', '-p', prompt],
+        ['/opt/node22/bin/claude', '--model', 'claude-sonnet-4-6', '-p', prompt],
         capture_output=True,
         text=True,
         timeout=300,
