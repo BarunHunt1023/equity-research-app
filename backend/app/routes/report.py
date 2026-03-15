@@ -1,5 +1,11 @@
 from fastapi import APIRouter, HTTPException
-from app.models.schemas import ReportRequest
+from app.models.schemas import (
+    ReportRequest,
+    PrimerStep1Request,
+    PrimerStep2Request,
+    PrimerStep3Request,
+    PrimerStep4Request,
+)
 from app.services import (
     yahoo_finance,
     financial_analysis,
@@ -14,7 +20,7 @@ router = APIRouter()
 
 @router.post("/report")
 def generate_report(req: ReportRequest):
-    """Generate a complete equity research report with AI-enhanced narratives."""
+    """Generate a complete equity research report with AI-enhanced narrative (full pipeline)."""
     try:
         ticker = req.ticker.upper().strip()
 
@@ -52,11 +58,69 @@ def generate_report(req: ReportRequest):
             ticker, company_info, financials, ratios, req.peers
         )
 
-        # Generate report with AI narrative
+        # Generate report with Business Primer
         report = report_generator.generate_report(
             company_info, financials, ratios, historical, fc, dcf, rel_val
         )
 
         return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# 4-Step Business Primer endpoints — called sequentially by the frontend
+# so it can show step-by-step progress
+# ---------------------------------------------------------------------------
+
+@router.post("/report/primer/step1")
+def primer_step1(req: PrimerStep1Request):
+    """Step 1 — Company Research: business model, moat, cost structure, risks."""
+    try:
+        ticker = req.ticker.upper().strip()
+        company_info = yahoo_finance.get_company_info(ticker)
+        financials = yahoo_finance.get_financials(ticker)
+        ratios = financial_analysis.compute_ratios(financials)
+        result = report_generator.step1_company_research(company_info, ratios)
+        return {
+            "company_research": result,
+            "company_name": company_info.get("name", ticker),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/report/primer/step2")
+def primer_step2(req: PrimerStep2Request):
+    """Step 2 — Industry Research: value chain, competitive landscape, demand drivers."""
+    try:
+        ticker = req.ticker.upper().strip()
+        company_info = yahoo_finance.get_company_info(ticker)
+        result = report_generator.step2_industry_research(company_info, req.company_research)
+        return {"industry_research": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/report/primer/step3")
+def primer_step3(req: PrimerStep3Request):
+    """Step 3 — Synthesis: combine research into a coherent 16-page primer draft."""
+    try:
+        ticker = req.ticker.upper().strip()
+        company_info = yahoo_finance.get_company_info(ticker)
+        result = report_generator.step3_synthesis(
+            company_info, req.company_research, req.industry_research
+        )
+        return {"primer_draft": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/report/primer/step4")
+def primer_step4(req: PrimerStep4Request):
+    """Step 4 — Fact-check: verify numbers, flag estimates, return final primer."""
+    try:
+        result = report_generator.step4_factcheck(req.primer_draft, req.company_name)
+        return {"business_primer": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,6 +1,7 @@
-"""AI-Enhanced Equity Research Report Generator using Claude API."""
+"""AI-Enhanced Equity Research Report Generator using Claude API — 4-Step Business Primer."""
 
 import json
+import datetime
 from app.config import ANTHROPIC_API_KEY
 
 try:
@@ -84,6 +85,160 @@ def _build_data_summary(company_info, ratios, forecast, dcf, relative_val):
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Individual step functions — each runs one Claude API call
+# ---------------------------------------------------------------------------
+
+def _claude(prompt: str, max_tokens: int) -> str:
+    """Helper: run a single Claude API call and return the text response."""
+    if not ANTHROPIC_API_KEY or not anthropic:
+        return ""
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text.strip()
+
+
+def step1_company_research(company_info: dict, ratios: dict) -> str:
+    """Call 1 — Company Research (max_tokens=4000)."""
+    data_summary = _build_data_summary(company_info, ratios, None, None, None)
+    name = company_info.get("name", "the company")
+    ticker = company_info.get("ticker", "")
+
+    prompt = f"""You are a senior investment analyst. Conduct deep research on {name} ({ticker}).
+
+Financial context already computed by the research platform:
+{data_summary}
+
+Analyze and write in detailed prose:
+(1) Business model — how it makes money, all revenue streams and their % mix, pricing model, recurring vs transactional revenue.
+(2) Cost structure — major cost categories, gross/operating/net margins for last 3 years, fixed vs variable costs, operating leverage.
+(3) Cash flow profile — FCF margin, FCF conversion, capital intensity, balance sheet strength.
+(4) Cyclicality — macro sensitivity, seasonality, performance in downturns.
+(5) Competitive moat — moat type (network effects/switching costs/cost advantages/intangibles), evidence for it, top 3 competitors compared on key metrics.
+(6) Growth vectors — TAM, penetration, organic vs acquisition growth, next 3-5 year drivers.
+(7) Top 5 risks with likelihood and severity.
+
+Write 8-10 pages of investor-grade prose. Cite sources. No bullet dumps. No fluff."""
+
+    return _claude(prompt, max_tokens=4000)
+
+
+def step2_industry_research(company_info: dict, company_research: str) -> str:
+    """Call 2 — Industry Research (max_tokens=4000)."""
+    name = company_info.get("name", "the company")
+
+    prompt = f"""You are a senior industry analyst. Based on the company research below, identify the industry {name} operates in and conduct deep research on it.
+
+COMPANY RESEARCH:
+{company_research}
+
+Analyze:
+(1) Industry definition and market size.
+(2) Full value chain map — where value is created vs captured, where {name} sits.
+(3) Profit pool — who makes money and why, which segments have highest margins.
+(4) Competitive landscape — fragmented or consolidated, top 10 players, consolidation trend.
+(5) Barriers to entry — capital, regulatory, scale, network effects, brand.
+(6) Demand drivers — structural forces, historical and forecast CAGR with sources.
+(7) Regulatory environment — key regulations, recent changes, pending risks.
+(8) Technology disruption risk — AI, platforms, new business models threatening incumbents.
+
+Write 6-8 pages of investor-grade prose. Cite sources."""
+
+    return _claude(prompt, max_tokens=4000)
+
+
+def step3_synthesis(company_info: dict, company_research: str, industry_research: str) -> str:
+    """Call 3 — Synthesis into 16-page primer (max_tokens=6000)."""
+    name = company_info.get("name", "the company")
+
+    prompt = f"""Using the company research and industry research below, write a single coherent 16-page Business & Industry Primer for {name} with these exact sections:
+
+(1) Executive Summary — 3-5 paragraphs, standalone mental model of the business.
+(2) How The Business Actually Works — revenue architecture, cost structure, cash flow story, one dollar of revenue walkthrough.
+(3) The Industry Context — value chain position, competitive landscape, profit pool, demand drivers, barriers to entry.
+(4) Competitive Position & Moat — moat type with evidence, comparison to top 3 rivals on revenue/margins/growth/ROIC, strengthening or eroding?
+(5) Growth — primary vectors, TAM runway, capital allocation priorities.
+(6) Risks — top 5 risks with likelihood (low/medium/high) and severity (low/medium/high).
+(7) Key Financial Metrics — table of Revenue, Revenue Growth%, Gross Margin%, Operating Margin%, Net Margin%, FCF, FCF Margin%, ROIC%, Net Debt/EBITDA for last 3 fiscal years.
+(8) What An Investor Must Understand — 3-5 original insights that unlock understanding of this business.
+
+Tone: clear, precise, investor-grade. No hedging. No AI-speak. Cite key numbers.
+
+COMPANY RESEARCH:
+{company_research}
+
+INDUSTRY RESEARCH:
+{industry_research}"""
+
+    return _claude(prompt, max_tokens=6000)
+
+
+def step4_factcheck(primer_draft: str, company_name: str) -> str:
+    """Call 4 — Fact-check and finalize the primer (max_tokens=4000)."""
+    today = datetime.date.today().strftime("%Y-%m-%d")
+
+    prompt = f"""Review this Business & Industry Primer for {company_name} and fact-check it.
+
+For every financial number: verify it is correctly attributed to the right fiscal year.
+For every market size or CAGR: flag if source is secondary only.
+For every competitive claim: check if it has quantitative backing.
+Mark unverified items with [UNVERIFIED].
+Mark estimates with [ESTIMATED].
+Mark company-stated-only claims with [COMPANY-STATED].
+Correct any internal inconsistencies between sections.
+Add a footnote at the end: "Fact-check completed {today}. X figures verified. Y items flagged."
+
+Return the corrected final report as clean markdown text, preserving all headings and section structure.
+
+PRIMER DRAFT:
+{primer_draft}"""
+
+    return _claude(prompt, max_tokens=4000)
+
+
+# ---------------------------------------------------------------------------
+# Full 4-step pipeline (used by the legacy /report endpoint)
+# ---------------------------------------------------------------------------
+
+def _generate_business_primer(company_info: dict, ratios: dict) -> dict:
+    """Run all 4 sequential Claude calls and return the final business primer."""
+    if not ANTHROPIC_API_KEY or not anthropic:
+        return _fallback_primer(company_info)
+
+    try:
+        company_research = step1_company_research(company_info, ratios)
+        industry_research = step2_industry_research(company_info, company_research)
+        primer_draft = step3_synthesis(company_info, company_research, industry_research)
+        name = company_info.get("name", "the company")
+        final = step4_factcheck(primer_draft, name)
+        return {"business_primer": final}
+    except Exception:
+        return _fallback_primer(company_info)
+
+
+def _fallback_primer(company_info: dict) -> dict:
+    """Template fallback when API key is not configured."""
+    name = company_info.get("name", "The company")
+    sector = company_info.get("sector", "its sector")
+    return {
+        "business_primer": (
+            f"# Business & Industry Primer: {name}\n\n"
+            f"## Executive Summary\n\n"
+            f"{name} operates in the {sector} sector.\n\n"
+            f"> **Note:** Configure the `ANTHROPIC_API_KEY` environment variable to generate "
+            f"a full AI-powered 16-page Business & Industry Primer."
+        )
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main generate_report entry point (kept for route compatibility)
+# ---------------------------------------------------------------------------
+
 def generate_report(
     company_info: dict,
     financials: dict,
@@ -93,10 +248,10 @@ def generate_report(
     dcf: dict,
     relative_val: dict,
 ) -> dict:
-    """Generate an AI-enhanced equity research report."""
-    data_summary = _build_data_summary(company_info, ratios, forecast, dcf, relative_val)
+    """Generate a Business & Industry Primer report."""
+    primer = _generate_business_primer(company_info, ratios)
 
-    # Compute composite target price
+    # Compute composite target price (kept for reference in the response)
     prices = []
     if dcf and dcf.get("implied_share_price"):
         prices.append(dcf["implied_share_price"])
@@ -107,7 +262,6 @@ def generate_report(
     target_price = round(sum(prices) / len(prices), 2) if prices else None
     current_price = company_info.get("current_price", 0)
 
-    # Determine recommendation
     if target_price and current_price:
         upside = (target_price / current_price) - 1
         if upside > 0.15:
@@ -120,115 +274,16 @@ def generate_report(
         recommendation = "HOLD"
         upside = 0
 
-    # Try AI-generated narrative
-    narrative = _generate_ai_narrative(data_summary, company_info, recommendation)
-
     return {
         "company": company_info,
         "recommendation": recommendation,
         "target_price": target_price,
         "current_price": current_price,
         "upside_pct": round(upside, 4) if upside else None,
-        "narrative": narrative,
+        "business_primer": primer.get("business_primer", ""),
         "ratios": ratios,
         "historical_metrics": historical_metrics,
         "forecast": forecast,
         "dcf": dcf,
         "relative_valuation": relative_val,
-    }
-
-
-def _generate_ai_narrative(data_summary: str, company_info: dict, recommendation: str) -> dict:
-    """Generate narrative sections using Claude API."""
-    if not ANTHROPIC_API_KEY or not anthropic:
-        return _generate_template_narrative(company_info, recommendation)
-
-    try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        prompt = f"""You are a senior equity research analyst. Based on the following financial data,
-write a professional equity research report narrative. Be specific with numbers and provide
-actionable insights.
-
-{data_summary}
-
-Please provide the following sections in JSON format:
-{{
-    "executive_summary": "2-3 paragraph executive summary with key findings and recommendation",
-    "investment_thesis": {{
-        "bull_case": "3-4 bullet points for the bull case",
-        "base_case": "3-4 bullet points for the base case",
-        "bear_case": "3-4 bullet points for the bear case"
-    }},
-    "business_overview": "2-3 paragraphs about the company's business, competitive position, and market",
-    "financial_highlights": "2-3 paragraphs analyzing the key financial metrics and trends",
-    "risk_factors": "4-5 key risk factors with brief explanations",
-    "catalysts": "3-4 potential catalysts that could drive the stock price"
-}}
-
-Respond ONLY with the JSON object, no additional text."""
-
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=3000,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        text = message.content[0].text.strip()
-        # Try to parse the JSON response
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text)
-    except Exception as e:
-        return _generate_template_narrative(company_info, recommendation)
-
-
-def _generate_template_narrative(company_info: dict, recommendation: str) -> dict:
-    """Fallback template-based narrative when AI is unavailable."""
-    name = company_info.get("name", "The company")
-    sector = company_info.get("sector", "its sector")
-    price = company_info.get("current_price", 0)
-
-    return {
-        "executive_summary": (
-            f"{name} operates in the {sector} sector. Based on our comprehensive analysis "
-            f"including DCF valuation and relative peer comparison, we rate the stock as "
-            f"{recommendation} at the current price of ${price:.2f}. "
-            f"Our analysis considers both quantitative financial metrics and qualitative "
-            f"factors including competitive positioning and industry dynamics."
-        ),
-        "investment_thesis": {
-            "bull_case": (
-                f"Strong revenue growth trajectory with expanding margins. "
-                f"Market leadership position in {sector}. "
-                f"Potential for multiple expansion as growth accelerates."
-            ),
-            "base_case": (
-                f"Steady growth in line with industry averages. "
-                f"Maintained market share with stable margins. "
-                f"Valuation fairly reflects current fundamentals."
-            ),
-            "bear_case": (
-                f"Competitive pressure could erode margins. "
-                f"Macroeconomic headwinds may slow growth. "
-                f"Potential for multiple compression if growth disappoints."
-            ),
-        },
-        "business_overview": (
-            f"{name} is a {sector} company. Please configure the ANTHROPIC_API_KEY "
-            f"environment variable to enable AI-powered detailed business analysis."
-        ),
-        "financial_highlights": (
-            f"Review the quantitative sections below for detailed financial metrics, "
-            f"historical trends, and projected financials."
-        ),
-        "risk_factors": (
-            "Key risks include: market competition, regulatory changes, "
-            "macroeconomic conditions, execution risk, and technology disruption."
-        ),
-        "catalysts": (
-            "Potential catalysts include: new product launches, market expansion, "
-            "strategic partnerships, and favorable regulatory developments."
-        ),
     }
