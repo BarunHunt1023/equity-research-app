@@ -52,17 +52,20 @@ class ReportRequest(BaseModel):
 
 class PrimerStep1Request(BaseModel):
     ticker: str
+    company_name: Optional[str] = None
 
 
 class PrimerStep2Request(BaseModel):
     ticker: str
     company_research: str
+    company_name: Optional[str] = None
 
 
 class PrimerStep3Request(BaseModel):
     ticker: str
     company_research: str
     industry_research: str
+    company_name: Optional[str] = None
 
 
 class PrimerStep4Request(BaseModel):
