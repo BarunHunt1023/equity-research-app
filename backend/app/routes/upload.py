@@ -85,7 +85,7 @@ async def upload_file(
         if yf_ticker:
             try:
                 logger.info("Fetching Yahoo Finance fallback data for ticker: %s", yf_ticker)
-                yf_data = yahoo_finance.get_financials_normalized(yf_ticker, divide_by=10_000_000)
+                yf_data = yahoo_finance.get_financials_normalized(yf_ticker, divide_by=10_000_000, retries=1)
                 if yf_data:
                     financials = _merge_financials(financials, yf_data)
                     logger.info("Yahoo Finance fallback merged successfully for %s", yf_ticker)
@@ -151,7 +151,7 @@ async def upload_file(
         # the file is read programmatically — Yahoo Finance fills those gaps.
         if yf_ticker:
             try:
-                yf_info = yahoo_finance.get_company_info(yf_ticker)
+                yf_info = yahoo_finance.get_company_info(yf_ticker, retries=1)
                 yf_fill_fields = [
                     "current_price", "market_cap", "enterprise_value",
                     "shares_outstanding", "beta", "trailing_pe", "forward_pe",
@@ -210,7 +210,7 @@ async def upload_file(
                     candidates += [joined + ".NS", joined + ".BO"]
             for candidate in candidates:
                 try:
-                    s = yahoo_finance.get_shareholders(candidate)
+                    s = yahoo_finance.get_shareholders(candidate, retries=1)
                     if s:
                         effective_ticker = candidate
                         shareholders = s
@@ -221,7 +221,7 @@ async def upload_file(
 
         if effective_ticker and not shareholders:
             try:
-                shareholders = yahoo_finance.get_shareholders(effective_ticker)
+                shareholders = yahoo_finance.get_shareholders(effective_ticker, retries=1)
             except Exception:
                 pass
         if effective_ticker and not news:

@@ -102,7 +102,7 @@ def _df_to_dict(df: pd.DataFrame) -> dict:
     return result
 
 
-def get_company_info(ticker: str) -> dict:
+def get_company_info(ticker: str, retries: int = 3) -> dict:
     cache_key = f"info:{ticker}"
     cached = _cache_get(cache_key)
     if cached:
@@ -132,12 +132,12 @@ def get_company_info(ticker: str) -> dict:
             "description": info.get("longBusinessSummary", ""),
         }
 
-    result = _retry(_fetch)
+    result = _retry(_fetch, retries)
     _cache_set(cache_key, result)
     return result
 
 
-def get_financials(ticker: str) -> dict:
+def get_financials(ticker: str, retries: int = 3) -> dict:
     cache_key = f"financials:{ticker}"
     cached = _cache_get(cache_key)
     if cached:
@@ -152,7 +152,7 @@ def get_financials(ticker: str) -> dict:
             "cash_flow": _df_to_dict(t.cashflow),
         }
 
-    result = _retry(_fetch)
+    result = _retry(_fetch, retries)
     _cache_set(cache_key, result)
     return result
 
@@ -211,7 +211,7 @@ _YF_TO_STANDARD = {
 }
 
 
-def get_financials_normalized(ticker: str, divide_by: float = None) -> dict:
+def get_financials_normalized(ticker: str, divide_by: float = None, retries: int = 3) -> dict:
     """Fetch financials from Yahoo Finance with normalized field names and year-based periods.
 
     Returns {stmt_type: {year_str: {standard_field: value}}}
@@ -228,7 +228,7 @@ def get_financials_normalized(ticker: str, divide_by: float = None) -> dict:
         return cached
 
     try:
-        raw = get_financials(ticker)   # reuses existing rate-limited, cached fetch
+        raw = get_financials(ticker, retries=retries)
     except Exception:
         return {}
 
@@ -331,7 +331,7 @@ def get_historical_prices(ticker: str, period: str = "5y") -> list[dict]:
     return records
 
 
-def get_shareholders(ticker: str) -> list:
+def get_shareholders(ticker: str, retries: int = 3) -> list:
     """Fetch top 10 institutional shareholders from Yahoo Finance."""
     cache_key = f"shareholders:{ticker}"
     cached = _cache_get(cache_key)
@@ -359,7 +359,7 @@ def get_shareholders(ticker: str) -> list:
         return result
 
     try:
-        result = _retry(_fetch)
+        result = _retry(_fetch, retries)
     except Exception:
         result = []
     _cache_set(cache_key, result)
