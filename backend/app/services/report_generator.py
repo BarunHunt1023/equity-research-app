@@ -97,13 +97,16 @@ def _claude(prompt: str, max_tokens: int) -> str:
     retry-after header returned by the API on 429 rate-limit responses.
     Falls back to a manual 60-second wait if the SDK retries are exhausted.
     """
-    if not ANTHROPIC_API_KEY or not anthropic:
-        return ""
+    if not anthropic:
+        raise ValueError(
+            "The 'anthropic' Python package is not installed. "
+            "Run: pip install anthropic"
+        )
     # max_retries=5 lets the SDK handle 429/529 with proper retry-after timing
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, max_retries=5)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY or None, max_retries=5)
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -113,7 +116,7 @@ def _claude(prompt: str, max_tokens: int) -> str:
         time.sleep(60)
         try:
             msg = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6",
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
