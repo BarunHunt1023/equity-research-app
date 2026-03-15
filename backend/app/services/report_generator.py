@@ -2,6 +2,7 @@
 
 import subprocess
 import datetime
+import os
 from app.config import ANTHROPIC_API_KEY
 
 
@@ -86,11 +87,13 @@ def _build_data_summary(company_info, ratios, forecast, dcf, relative_val):
 
 def _claude(prompt: str, max_tokens: int) -> str:
     """Helper: run a single Claude CLI call and return the text response."""
+    env = {**os.environ, 'PATH': f'/opt/node22/bin:{os.environ.get("PATH", "")}'}
     result = subprocess.run(
         ['/opt/node22/bin/claude', '--model', 'claude-sonnet-4-6', '-p', prompt],
         capture_output=True,
         text=True,
         timeout=300,
+        env=env,
     )
     if result.returncode != 0:
         raise ValueError(f"Claude CLI error: {result.stderr.strip() or 'unknown error'}")
