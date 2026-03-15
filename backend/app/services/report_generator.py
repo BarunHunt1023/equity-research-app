@@ -93,30 +93,30 @@ def _build_data_summary(company_info, ratios, forecast, dcf, relative_val):
 def _claude(prompt: str, max_tokens: int) -> str:
     """Helper: run a single Claude API call and return the text response.
 
-    Retries up to 3 times with exponential backoff (5s, 10s, 20s) on rate
-    limit errors so transient 429 responses don't surface to the user.
+    Uses the SDK's built-in retry mechanism (max_retries=5) which honours the
+    retry-after header returned by the API on 429 rate-limit responses.
+    Falls back to a manual 60-second wait if the SDK retries are exhausted.
     """
     if not ANTHROPIC_API_KEY or not anthropic:
         return ""
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    delays = [5, 10, 20]
-    for attempt, delay in enumerate(delays + [None]):
-        try:
-            msg = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return msg.content[0].text.strip()
-        except anthropic.RateLimitError:
-            if delay is None:
-                raise
-            time.sleep(delay)
-        except anthropic.APIStatusError as e:
-            if e.status_code == 529 and delay is not None:  # API overloaded
-                time.sleep(delay)
-            else:
-                raise
+    # max_retries=5 lets the SDK handle 429/529 with proper retry-after timing
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, max_retries=5)
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
+    except anthropic.RateLimitError:
+        # All SDK retries exhausted — wait 60 s and try once more
+        time.sleep(60)
+        msg = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
 
 
 def step1_company_research(company_info: dict, ratios: dict) -> str:

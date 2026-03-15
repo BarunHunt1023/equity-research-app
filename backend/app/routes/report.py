@@ -15,6 +15,11 @@ from app.services import (
     report_generator,
 )
 
+try:
+    import anthropic as _anthropic
+except ImportError:
+    _anthropic = None
+
 router = APIRouter()
 
 
@@ -73,6 +78,16 @@ def generate_report(req: ReportRequest):
 # so it can show step-by-step progress
 # ---------------------------------------------------------------------------
 
+def _handle_rate_limit(e: Exception):
+    """Re-raise rate limit errors as HTTP 429, all others as HTTP 500."""
+    if _anthropic and isinstance(e, _anthropic.RateLimitError):
+        raise HTTPException(
+            status_code=429,
+            detail="The AI service is temporarily rate-limited. Please wait a moment and try again.",
+        )
+    raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/report/primer/step1")
 def primer_step1(req: PrimerStep1Request):
     """Step 1 — Company Research: business model, moat, cost structure, risks."""
@@ -87,7 +102,7 @@ def primer_step1(req: PrimerStep1Request):
             "company_name": company_info.get("name", ticker),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_rate_limit(e)
 
 
 @router.post("/report/primer/step2")
@@ -99,7 +114,7 @@ def primer_step2(req: PrimerStep2Request):
         result = report_generator.step2_industry_research(company_info, req.company_research)
         return {"industry_research": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_rate_limit(e)
 
 
 @router.post("/report/primer/step3")
@@ -113,7 +128,7 @@ def primer_step3(req: PrimerStep3Request):
         )
         return {"primer_draft": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_rate_limit(e)
 
 
 @router.post("/report/primer/step4")
@@ -123,4 +138,4 @@ def primer_step4(req: PrimerStep4Request):
         result = report_generator.step4_factcheck(req.primer_draft, req.company_name)
         return {"business_primer": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_rate_limit(e)
