@@ -48,3 +48,23 @@ class ReportRequest(BaseModel):
     da_pct_revenue: Optional[float] = None
     nwc_pct_revenue: Optional[float] = None
     peers: Optional[list[str]] = None
+
+
+class PrimerStep1Request(BaseModel):
+    ticker: str
+
+
+class PrimerStep2Request(BaseModel):
+    ticker: str
+    company_research: str
+
+
+class PrimerStep3Request(BaseModel):
+    ticker: str
+    company_research: str
+    industry_research: str
+
+
+class PrimerStep4Request(BaseModel):
+    primer_draft: str
+    company_name: str = "the company"

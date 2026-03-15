@@ -330,13 +330,16 @@ def build_profit_loss(annual_income: dict, company_info: dict, shares_outstandin
     np_yoy           = [None] + [_yoy(np_vals[i], np_vals[i-1]) for i in range(1, n)]
     np_margin_vals   = [_pct(np_vals[i], rev_vals[i]) for i in range(n)]
 
-    # EPS computed if not in data
+    # EPS computed if not in data or if 0 (formula-cached cells in screener.in exports often
+    # evaluate to 0; recompute from PAT / shares to get the real value)
     # shares_outstanding is stored in absolute count; np_vals is in Crores
     # EPS (Rs/share) = PAT (Crores) / shares (Crores)
     for i in range(n):
-        if eps_vals[i] is None and np_vals[i] is not None and shares_outstanding:
+        if (eps_vals[i] is None or eps_vals[i] == 0) and np_vals[i] is not None and shares_outstanding:
             shares_in_cr = shares_outstanding / 1e7
-            eps_vals[i] = round(np_vals[i] / shares_in_cr, 1)
+            computed = round(np_vals[i] / shares_in_cr, 1)
+            if computed != 0:  # only override if computation gives a non-zero result
+                eps_vals[i] = computed
 
     eps_yoy = [None] + [_yoy(eps_vals[i], eps_vals[i-1]) for i in range(1, n)]
 

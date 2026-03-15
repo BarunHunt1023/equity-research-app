@@ -190,16 +190,43 @@ async def upload_file(
         # Build screener-style tables
         screener_tables = build_screener_tables(financials, quarterly_data, company_info)
 
-        # Fetch shareholders and news when ticker is provided
+        # Fetch shareholders and news when ticker is provided.
+        # If no explicit ticker, try to derive one from the company name for Indian stocks
+        # (screener.in exports are almost always NSE/BSE-listed companies).
         shareholders = []
         news = []
-        if yf_ticker:
+        effective_ticker = yf_ticker
+        if not effective_ticker and company_name:
+            name_clean = company_name.upper()
+            for rm in [" LTD", " LIMITED", " INDUSTRIES", " INDIA", " INC", " CORP", " PVT", " PRIVATE", " PUBLIC", "."]:
+                name_clean = name_clean.replace(rm, "")
+            name_parts = name_clean.strip().split()
+            candidates = []
+            if name_parts:
+                # Try first word and joined first-two-words as NSE/BSE tickers
+                candidates = [name_parts[0] + ".NS", name_parts[0] + ".BO"]
+                if len(name_parts) > 1:
+                    joined = "".join(name_parts[:2])[:15]
+                    candidates += [joined + ".NS", joined + ".BO"]
+            for candidate in candidates:
+                try:
+                    s = yahoo_finance.get_shareholders(candidate)
+                    if s:
+                        effective_ticker = candidate
+                        shareholders = s
+                        logger.info("Derived ticker '%s' from company name '%s' for shareholders", candidate, company_name)
+                        break
+                except Exception:
+                    continue
+
+        if effective_ticker and not shareholders:
             try:
-                shareholders = yahoo_finance.get_shareholders(yf_ticker)
+                shareholders = yahoo_finance.get_shareholders(effective_ticker)
             except Exception:
                 pass
+        if effective_ticker and not news:
             try:
-                news = yahoo_finance.get_news(yf_ticker)
+                news = yahoo_finance.get_news(effective_ticker)
             except Exception:
                 pass
 

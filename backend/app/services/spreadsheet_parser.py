@@ -1217,6 +1217,15 @@ def _compute_derived_fields(financials: dict):
             if op_income is not None and da is not None:
                 data["EBITDA"] = op_income + abs(da)
 
+        # Compute Basic EPS if missing or zero (screener.in formula cells often cache as 0)
+        # EPS (Rs/share) = Net Income (Cr) / Shares Outstanding (Cr)
+        if not data.get("Basic EPS"):
+            net_income = data.get("Net Income")
+            if period in bs:
+                shares_cr = bs[period].get("Shares Outstanding")
+                if net_income is not None and shares_cr and shares_cr > 0:
+                    data["Basic EPS"] = round(net_income / shares_cr, 2)
+
 
 def parse_csv(filepath: str) -> dict:
     """Parse a CSV file with financial data.

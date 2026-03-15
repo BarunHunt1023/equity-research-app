@@ -38,7 +38,8 @@ function fmtNum(v, decimals = 2) {
 }
 
 function fmtX(v) {
-  if (v == null || isNaN(v)) return '\u2014'
+  if (v == null || isNaN(v) || !isFinite(v)) return '\u2014'
+  if (v < 0 || v > 9999) return '\u2014'  // guard against unrealistic ratios (e.g. EPS≈0)
   return `${v.toFixed(2)}x`
 }
 
@@ -54,9 +55,9 @@ function MetricsTable({ title, rows, periods, sym, unit }) {
       </div>
       {rows.map((row, i) => (
         <div key={i} className={`flex text-xs px-2 py-0.5 border-b border-gray-200 ${row.bold ? 'font-semibold' : ''} ${row.italic ? 'italic' : ''}`}>
-          <span className="flex-1 text-gray-800">{row.label}</span>
+          <span className="flex-1 text-gray-800 truncate">{row.label}</span>
           {periods.map(p => (
-            <span key={p} className="w-20 text-right text-gray-700">
+            <span key={p} className="w-20 flex-shrink-0 text-right text-gray-700 overflow-hidden truncate">
               {row.values[p] ?? '\u2014'}
             </span>
           ))}
@@ -106,11 +107,13 @@ export default function OnePagerPage() {
     }
 
     // EPS: try multiple field names (screener.in may use any of these)
+    // Note: skip explicit 0 values — screener.in formula-cached cells often evaluate to 0
     // Fallback 1: Net Income / Shares Outstanding from BS (screener stores shares in Cr = same unit)
     // Fallback 2: Net Income / companyInfo.shares_outstanding (absolute count from YF)
     const getEPS = p => {
       const explicit = getIS(p, 'Basic EPS') ?? getIS(p, 'EPS in Rs') ?? getIS(p, 'EPS') ?? getIS(p, 'Diluted EPS')
-      if (explicit != null) return explicit
+      if (explicit != null && explicit !== 0) return explicit
+      // Either explicit is null/undefined or it was cached as 0 — compute from fundamentals
       const ni = getIS(p, 'Net Income')
       const sharesCr = getBS(p, 'Shares Outstanding')
       if (ni != null && sharesCr && sharesCr > 0) return ni / sharesCr
@@ -188,7 +191,7 @@ export default function OnePagerPage() {
       buildRow('Price to Earnings', p => {
         const eps = getEPS(p)
         const price = companyInfo?.current_price
-        if (eps != null && price) return price / eps
+        if (eps != null && eps !== 0 && price) return price / eps
         // Fallback: use trailing_pe from Yahoo Finance for the most recent period
         if (p === last5[last5.length - 1] && companyInfo?.trailing_pe) return companyInfo.trailing_pe
         return null
@@ -423,8 +426,8 @@ export default function OnePagerPage() {
               </div>
             ) : (
               <div className="border border-gray-200 p-3 text-xs text-gray-400 text-center min-h-[100px] flex items-center justify-center">
-                Shareholder data not available for uploaded financials.<br/>
-                Use ticker analysis for live shareholder data.
+                Shareholder data unavailable.<br/>
+                Enter the company&apos;s stock ticker (e.g. RELIANCE.NS) in the upload form to fetch live data.
               </div>
             )}
           </div>

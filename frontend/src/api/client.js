@@ -5,6 +5,12 @@ const api = axios.create({
   timeout: 120000, // 2 minutes for heavy computations
 })
 
+// Longer timeout for Claude API calls (each step can take 60-90s)
+const reportApi = axios.create({
+  baseURL: '/api',
+  timeout: 240000, // 4 minutes per step
+})
+
 export async function analyzeCompany(ticker) {
   const { data } = await api.post('/analyze', { ticker })
   return data
@@ -27,6 +33,26 @@ export async function runRelativeValuation(ticker, peers = null) {
 
 export async function generateReport(ticker, params = {}) {
   const { data } = await api.post('/report', { ticker, ...params })
+  return data
+}
+
+export async function primerStep1(ticker) {
+  const { data } = await reportApi.post('/report/primer/step1', { ticker })
+  return data
+}
+
+export async function primerStep2(ticker, company_research) {
+  const { data } = await reportApi.post('/report/primer/step2', { ticker, company_research })
+  return data
+}
+
+export async function primerStep3(ticker, company_research, industry_research) {
+  const { data } = await reportApi.post('/report/primer/step3', { ticker, company_research, industry_research })
+  return data
+}
+
+export async function primerStep4(primer_draft, company_name) {
+  const { data } = await reportApi.post('/report/primer/step4', { primer_draft, company_name })
   return data
 }
 
