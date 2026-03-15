@@ -1,14 +1,8 @@
-"""AI-Enhanced Equity Research Report Generator using Claude API — 4-Step Business Primer."""
+"""AI-Enhanced Equity Research Report Generator using Claude CLI — 4-Step Business Primer."""
 
-import json
-import time
+import subprocess
 import datetime
-from app.config import get_anthropic_key, ANTHROPIC_API_KEY
-
-try:
-    import anthropic
-except ImportError:
-    anthropic = None
+from app.config import ANTHROPIC_API_KEY
 
 
 def _format_number(n, decimals=1):
@@ -91,44 +85,16 @@ def _build_data_summary(company_info, ratios, forecast, dcf, relative_val):
 # ---------------------------------------------------------------------------
 
 def _claude(prompt: str, max_tokens: int) -> str:
-    """Helper: run a single Claude API call and return the text response.
-
-    Uses the SDK's built-in retry mechanism (max_retries=5) which honours the
-    retry-after header returned by the API on 429 rate-limit responses.
-    Falls back to a manual 60-second wait if the SDK retries are exhausted.
-    """
-    if not anthropic:
-        raise ValueError(
-            "The 'anthropic' Python package is not installed. "
-            "Run: pip install anthropic"
-        )
-    api_key = get_anthropic_key()
-    if not api_key:
-        raise ValueError(
-            "Anthropic API key is not configured. "
-            "Please set it in the app settings or via the ANTHROPIC_API_KEY environment variable."
-        )
-    # max_retries=5 lets the SDK handle 429/529 with proper retry-after timing
-    client = anthropic.Anthropic(api_key=api_key, max_retries=5)
-    try:
-        msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text.strip()
-    except anthropic.RateLimitError:
-        # All SDK retries exhausted — wait 60 s and try once more
-        time.sleep(60)
-        try:
-            msg = client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return msg.content[0].text.strip()
-        except anthropic.RateLimitError:
-            raise  # re-raise so the route handler converts it to HTTP 429
+    """Helper: run a single Claude CLI call and return the text response."""
+    result = subprocess.run(
+        ['claude', '--model', 'claude-sonnet-4-6', '-p', prompt],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"Claude CLI error: {result.stderr.strip() or 'unknown error'}")
+    return result.stdout.strip()
 
 
 def step1_company_research(company_name: str, ticker: str) -> str:
@@ -229,10 +195,7 @@ PRIMER DRAFT:
 # ---------------------------------------------------------------------------
 
 def _generate_business_primer(company_info: dict, ratios: dict) -> dict:
-    """Run all 4 sequential Claude calls and return the final business primer."""
-    if not ANTHROPIC_API_KEY or not anthropic:
-        return _fallback_primer(company_info)
-
+    """Run all 4 sequential Claude CLI calls and return the final business primer."""
     name = company_info.get("name", "the company")
     ticker = company_info.get("ticker", "")
     try:
