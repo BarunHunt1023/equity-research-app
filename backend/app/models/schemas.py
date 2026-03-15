@@ -52,11 +52,14 @@ class ReportRequest(BaseModel):
 
 class PrimerStep1Request(BaseModel):
     ticker: str
+    company_info: Optional[dict] = None
+    ratios: Optional[dict] = None
 
 
 class PrimerStep2Request(BaseModel):
     ticker: str
     company_research: str
+    company_info: Optional[dict] = None
 
 
 class PrimerStep3Request(BaseModel):

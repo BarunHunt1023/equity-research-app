@@ -36,13 +36,13 @@ export async function generateReport(ticker, params = {}) {
   return data
 }
 
-export async function primerStep1(ticker) {
-  const { data } = await reportApi.post('/report/primer/step1', { ticker })
+export async function primerStep1(ticker, company_info = null, ratios = null) {
+  const { data } = await reportApi.post('/report/primer/step1', { ticker, company_info, ratios })
   return data
 }
 
-export async function primerStep2(ticker, company_research) {
-  const { data } = await reportApi.post('/report/primer/step2', { ticker, company_research })
+export async function primerStep2(ticker, company_research, company_info = null) {
+  const { data } = await reportApi.post('/report/primer/step2', { ticker, company_research, company_info })
   return data
 }
 
