@@ -3,7 +3,7 @@
 import json
 import time
 import datetime
-from app.config import ANTHROPIC_API_KEY
+from app.config import get_anthropic_key, ANTHROPIC_API_KEY
 
 try:
     import anthropic
@@ -102,8 +102,14 @@ def _claude(prompt: str, max_tokens: int) -> str:
             "The 'anthropic' Python package is not installed. "
             "Run: pip install anthropic"
         )
+    api_key = get_anthropic_key()
+    if not api_key:
+        raise ValueError(
+            "Anthropic API key is not configured. "
+            "Please set it in the app settings or via the ANTHROPIC_API_KEY environment variable."
+        )
     # max_retries=5 lets the SDK handle 429/529 with proper retry-after timing
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY or None, max_retries=5)
+    client = anthropic.Anthropic(api_key=api_key, max_retries=5)
     try:
         msg = client.messages.create(
             model="claude-sonnet-4-6",
