@@ -102,16 +102,11 @@ def _claude(prompt: str, max_tokens: int) -> str:
             "The 'anthropic' Python package is not installed. "
             "Run: pip install anthropic"
         )
-    if not ANTHROPIC_API_KEY:
-        raise ValueError(
-            "ANTHROPIC_API_KEY is not configured. "
-            "Please set this environment variable to generate AI-powered reports."
-        )
     # max_retries=5 lets the SDK handle 429/529 with proper retry-after timing
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, max_retries=5)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY or None, max_retries=5)
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -121,7 +116,7 @@ def _claude(prompt: str, max_tokens: int) -> str:
         time.sleep(60)
         try:
             msg = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6",
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
