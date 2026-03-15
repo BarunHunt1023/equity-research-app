@@ -76,4 +76,14 @@ export async function getPeers(ticker) {
   return data
 }
 
+export async function getConfigStatus() {
+  const { data } = await api.get('/config/status')
+  return data
+}
+
+export async function setAnthropicKey(apiKey) {
+  const { data } = await api.post('/config/set-key', { api_key: apiKey })
+  return data
+}
+
 export default api

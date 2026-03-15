@@ -89,7 +89,7 @@ def _rate_limit_response(detail: str, retry_after: int) -> JSONResponse:
 
 
 def _handle_rate_limit(e: Exception):
-    """Re-raise rate limit errors as HTTP 429, all others as HTTP 500."""
+    """Re-raise rate limit errors as HTTP 429, auth errors as HTTP 401, all others as HTTP 500."""
     if _anthropic:
         is_rate_limit = isinstance(e, _anthropic.RateLimitError) or (
             isinstance(e, _anthropic.APIStatusError) and getattr(e, "status_code", None) == 429
@@ -98,6 +98,11 @@ def _handle_rate_limit(e: Exception):
             return _rate_limit_response(
                 "The AI service is temporarily rate-limited. Please wait a moment and try again.",
                 retry_after=60,
+            )
+        if isinstance(e, _anthropic.AuthenticationError):
+            raise HTTPException(
+                status_code=401,
+                detail="Anthropic API key is invalid or not configured. Please update it in the app settings.",
             )
     # Catch Yahoo Finance and other data-source rate limits (YFRateLimitError, HTTP 429s, etc.)
     err_str = str(e).lower()

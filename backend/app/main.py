@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.routes.analysis import router as analysis_router
 from app.routes.upload import router as upload_router
 from app.routes.report import router as report_router
+from app.routes.config import router as config_router
 
 app = FastAPI(title="Equity Research App", version="1.0.0")
 
@@ -25,6 +26,7 @@ app.add_middleware(
 app.include_router(analysis_router, prefix="/api")
 app.include_router(upload_router, prefix="/api")
 app.include_router(report_router, prefix="/api")
+app.include_router(config_router, prefix="/api")
 
 
 @app.get("/api/health")
