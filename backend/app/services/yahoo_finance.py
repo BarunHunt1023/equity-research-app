@@ -6,6 +6,19 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
+try:
+    from yfinance.exceptions import YFRateLimitError as _YFRateLimitError
+except ImportError:
+    _YFRateLimitError = None
+
+
+def _is_yf_rate_limit(e: Exception) -> bool:
+    """Return True if the exception is a Yahoo Finance rate-limit error."""
+    if _YFRateLimitError and isinstance(e, _YFRateLimitError):
+        return True
+    err = str(e).lower()
+    return "too many requests" in err or "rate limit" in err or "429" in err
+
 
 # Simple rate limiter: track last request time, enforce minimum gap
 _rate_lock = threading.Lock()
@@ -45,7 +58,7 @@ def _cache_set(key, data):
 
 
 def _retry(fn, retries=3):
-    """Retry a function with longer backoff to respect rate limits."""
+    """Retry a function with backoff, waiting longer on rate-limit errors."""
     last_err = None
     for attempt in range(retries):
         try:
@@ -53,7 +66,11 @@ def _retry(fn, retries=3):
         except Exception as e:
             last_err = e
             if attempt < retries - 1:
-                time.sleep(3 + attempt * 5)  # 3s, 8s, 13s
+                if _is_yf_rate_limit(e):
+                    # Yahoo Finance rate limits need a longer cool-down
+                    time.sleep(30 + attempt * 15)  # 30s, 45s
+                else:
+                    time.sleep(3 + attempt * 5)  # 3s, 8s
     raise last_err
 
 

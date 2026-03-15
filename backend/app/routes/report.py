@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from app.models.schemas import (
     ReportRequest,
     PrimerStep1Request,
@@ -78,6 +79,15 @@ def generate_report(req: ReportRequest):
 # so it can show step-by-step progress
 # ---------------------------------------------------------------------------
 
+def _rate_limit_response(detail: str, retry_after: int) -> JSONResponse:
+    """Return a 429 JSON response with a Retry-After header."""
+    return JSONResponse(
+        status_code=429,
+        content={"detail": detail},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
 def _handle_rate_limit(e: Exception):
     """Re-raise rate limit errors as HTTP 429, all others as HTTP 500."""
     if _anthropic:
@@ -85,16 +95,16 @@ def _handle_rate_limit(e: Exception):
             isinstance(e, _anthropic.APIStatusError) and getattr(e, "status_code", None) == 429
         )
         if is_rate_limit:
-            raise HTTPException(
-                status_code=429,
-                detail="The AI service is temporarily rate-limited. Please wait a moment and try again.",
+            return _rate_limit_response(
+                "The AI service is temporarily rate-limited. Please wait a moment and try again.",
+                retry_after=60,
             )
     # Catch Yahoo Finance and other data-source rate limits (YFRateLimitError, HTTP 429s, etc.)
     err_str = str(e).lower()
-    if "too many requests" in err_str or "rate limit" in err_str:
-        raise HTTPException(
-            status_code=429,
-            detail="Data service is rate-limited. Please wait a moment and try again.",
+    if "too many requests" in err_str or "rate limit" in err_str or "429" in err_str:
+        return _rate_limit_response(
+            "Data service is rate-limited. Please wait a moment and try again.",
+            retry_after=30,
         )
     raise HTTPException(status_code=500, detail=str(e))
 
@@ -113,7 +123,7 @@ def primer_step1(req: PrimerStep1Request):
             "company_name": company_info.get("name", ticker),
         }
     except Exception as e:
-        _handle_rate_limit(e)
+        return _handle_rate_limit(e)
 
 
 @router.post("/report/primer/step2")
@@ -125,7 +135,7 @@ def primer_step2(req: PrimerStep2Request):
         result = report_generator.step2_industry_research(company_info, req.company_research)
         return {"industry_research": result}
     except Exception as e:
-        _handle_rate_limit(e)
+        return _handle_rate_limit(e)
 
 
 @router.post("/report/primer/step3")
@@ -139,7 +149,7 @@ def primer_step3(req: PrimerStep3Request):
         )
         return {"primer_draft": result}
     except Exception as e:
-        _handle_rate_limit(e)
+        return _handle_rate_limit(e)
 
 
 @router.post("/report/primer/step4")
@@ -149,4 +159,4 @@ def primer_step4(req: PrimerStep4Request):
         result = report_generator.step4_factcheck(req.primer_draft, req.company_name)
         return {"business_primer": result}
     except Exception as e:
-        _handle_rate_limit(e)
+        return _handle_rate_limit(e)

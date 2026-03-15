@@ -232,7 +232,8 @@ export default function ReportPage() {
       setError(e.response?.data?.detail || e.message || 'Failed to generate primer')
       setStep(0)
       if (e.response?.status === 429) {
-        let secs = 60
+        const retryAfter = parseInt(e.response?.headers?.['retry-after'], 10)
+        let secs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60
         setRetryCountdown(secs)
         retryTimerRef.current = setInterval(() => {
           secs -= 1
