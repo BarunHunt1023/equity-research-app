@@ -80,11 +80,15 @@ def generate_report(req: ReportRequest):
 
 def _handle_rate_limit(e: Exception):
     """Re-raise rate limit errors as HTTP 429, all others as HTTP 500."""
-    if _anthropic and isinstance(e, _anthropic.RateLimitError):
-        raise HTTPException(
-            status_code=429,
-            detail="The AI service is temporarily rate-limited. Please wait a moment and try again.",
+    if _anthropic:
+        is_rate_limit = isinstance(e, _anthropic.RateLimitError) or (
+            isinstance(e, _anthropic.APIStatusError) and getattr(e, "status_code", None) == 429
         )
+        if is_rate_limit:
+            raise HTTPException(
+                status_code=429,
+                detail="The AI service is temporarily rate-limited. Please wait a moment and try again.",
+            )
     raise HTTPException(status_code=500, detail=str(e))
 
 
