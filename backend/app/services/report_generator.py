@@ -111,12 +111,15 @@ def _claude(prompt: str, max_tokens: int) -> str:
     except anthropic.RateLimitError:
         # All SDK retries exhausted — wait 60 s and try once more
         time.sleep(60)
-        msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return msg.content[0].text.strip()
+        try:
+            msg = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return msg.content[0].text.strip()
+        except anthropic.RateLimitError:
+            raise  # re-raise so the route handler converts it to HTTP 429
 
 
 def step1_company_research(company_info: dict, ratios: dict) -> str:

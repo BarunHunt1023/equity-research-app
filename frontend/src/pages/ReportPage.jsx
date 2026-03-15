@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAnalysis } from '../context/AnalysisContext'
 import ReactMarkdown from 'react-markdown'
@@ -194,6 +194,11 @@ export default function ReportPage() {
   const [primer, setPrimer]       = useState(null)  // final markdown string
   const [error, setError]         = useState('')
   const [pdfLoading, setPdfLoading] = useState(false)
+  const [retryCountdown, setRetryCountdown] = useState(0)
+  const retryTimerRef = useRef(null)
+
+  // Cleanup interval on unmount
+  useEffect(() => () => clearInterval(retryTimerRef.current), [])
 
   const companyName = companyInfo?.name || ticker || 'Company'
   const today = new Date().toISOString().split('T')[0]
@@ -226,6 +231,20 @@ export default function ReportPage() {
     } catch (e) {
       setError(e.response?.data?.detail || e.message || 'Failed to generate primer')
       setStep(0)
+      if (e.response?.status === 429) {
+        let secs = 60
+        setRetryCountdown(secs)
+        retryTimerRef.current = setInterval(() => {
+          secs -= 1
+          setRetryCountdown(secs)
+          if (secs <= 0) {
+            clearInterval(retryTimerRef.current)
+            setRetryCountdown(0)
+            setError('')
+            handleGenerate()
+          }
+        }, 1000)
+      }
     }
   }, [ticker, companyName])
 
@@ -297,6 +316,24 @@ export default function ReportPage() {
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
           {error}
+        </div>
+      )}
+
+      {/* ── Rate-limit countdown ─────────────────────────────────────── */}
+      {retryCountdown > 0 && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm flex items-center justify-between">
+          <span>Rate limited — auto-retrying in <strong>{retryCountdown}s</strong>…</span>
+          <button
+            onClick={() => {
+              clearInterval(retryTimerRef.current)
+              setRetryCountdown(0)
+              setError('')
+              handleGenerate()
+            }}
+            className="text-amber-700 underline font-semibold ml-4"
+          >
+            Retry Now
+          </button>
         </div>
       )}
 
