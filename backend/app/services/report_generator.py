@@ -1,6 +1,7 @@
 """AI-Enhanced Equity Research Report Generator using Claude API — 4-Step Business Primer."""
 
 import json
+import time
 import datetime
 from app.config import ANTHROPIC_API_KEY
 
@@ -90,16 +91,32 @@ def _build_data_summary(company_info, ratios, forecast, dcf, relative_val):
 # ---------------------------------------------------------------------------
 
 def _claude(prompt: str, max_tokens: int) -> str:
-    """Helper: run a single Claude API call and return the text response."""
+    """Helper: run a single Claude API call and return the text response.
+
+    Retries up to 3 times with exponential backoff (5s, 10s, 20s) on rate
+    limit errors so transient 429 responses don't surface to the user.
+    """
     if not ANTHROPIC_API_KEY or not anthropic:
         return ""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    msg = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return msg.content[0].text.strip()
+    delays = [5, 10, 20]
+    for attempt, delay in enumerate(delays + [None]):
+        try:
+            msg = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return msg.content[0].text.strip()
+        except anthropic.RateLimitError:
+            if delay is None:
+                raise
+            time.sleep(delay)
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and delay is not None:  # API overloaded
+                time.sleep(delay)
+            else:
+                raise
 
 
 def step1_company_research(company_info: dict, ratios: dict) -> str:
