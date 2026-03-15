@@ -196,6 +196,8 @@ export default function ReportPage() {
   const [pdfLoading, setPdfLoading] = useState(false)
   const [retryCountdown, setRetryCountdown] = useState(0)
   const retryTimerRef = useRef(null)
+  const autoRetryAttemptsRef = useRef(0)
+  const MAX_AUTO_RETRIES = 2
 
   // Cleanup interval on unmount
   useEffect(() => () => clearInterval(retryTimerRef.current), [])
@@ -203,8 +205,12 @@ export default function ReportPage() {
   const companyName = companyInfo?.name || ticker || 'Company'
   const today = new Date().toISOString().split('T')[0]
 
-  const handleGenerate = useCallback(async () => {
+  const handleGenerate = useCallback(async (isAutoRetry = false) => {
     if (!ticker) return
+    if (!isAutoRetry) {
+      // Manual trigger resets the auto-retry counter
+      autoRetryAttemptsRef.current = 0
+    }
     setError('')
     setPrimer(null)
     setStep(1)
@@ -227,12 +233,15 @@ export default function ReportPage() {
       const s4 = await primerStep4(s3.primer_draft, name)
       setStep(5)
 
+      autoRetryAttemptsRef.current = 0
       setPrimer(s4.business_primer)
     } catch (e) {
       setError(e.response?.data?.detail || e.message || 'Failed to generate primer')
       setStep(0)
-      if (e.response?.status === 429) {
-        let secs = 60
+      if (e.response?.status === 429 && autoRetryAttemptsRef.current < MAX_AUTO_RETRIES) {
+        autoRetryAttemptsRef.current += 1
+        const retryAfter = parseInt(e.response?.headers?.['retry-after'], 10)
+        let secs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60
         setRetryCountdown(secs)
         retryTimerRef.current = setInterval(() => {
           secs -= 1
@@ -241,7 +250,7 @@ export default function ReportPage() {
             clearInterval(retryTimerRef.current)
             setRetryCountdown(0)
             setError('')
-            handleGenerate()
+            handleGenerate(true)
           }
         }, 1000)
       }
