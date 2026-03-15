@@ -4,7 +4,7 @@ import { useAnalysis } from '../context/AnalysisContext'
 import ReactMarkdown from 'react-markdown'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
-import { primerStep1, primerStep2, primerStep3, primerStep4, getConfigStatus, setAnthropicKey } from '../api/client'
+import { primerStep1, primerStep2, primerStep3, primerStep4 } from '../api/client'
 
 // ── Step metadata ─────────────────────────────────────────────────────────────
 const STEPS = [
@@ -199,36 +199,8 @@ export default function ReportPage() {
   const autoRetryAttemptsRef = useRef(0)
   const MAX_AUTO_RETRIES = 2
 
-  // API key configuration state
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(null) // null = loading
-  const [apiKeyInput, setApiKeyInput] = useState('')
-  const [apiKeySaving, setApiKeySaving] = useState(false)
-  const [apiKeyError, setApiKeyError] = useState('')
-
   // Cleanup interval on unmount
   useEffect(() => () => clearInterval(retryTimerRef.current), [])
-
-  // Check if Anthropic API key is configured on mount
-  useEffect(() => {
-    getConfigStatus()
-      .then(({ anthropic_configured }) => setApiKeyConfigured(anthropic_configured))
-      .catch(() => setApiKeyConfigured(false))
-  }, [])
-
-  const handleSaveApiKey = useCallback(async () => {
-    if (!apiKeyInput.trim()) return
-    setApiKeySaving(true)
-    setApiKeyError('')
-    try {
-      await setAnthropicKey(apiKeyInput.trim())
-      setApiKeyConfigured(true)
-      setApiKeyInput('')
-    } catch (e) {
-      setApiKeyError(e.response?.data?.detail || 'Failed to save API key.')
-    } finally {
-      setApiKeySaving(false)
-    }
-  }, [apiKeyInput])
 
   const companyName = companyInfo?.name || ticker || 'Company'
   const today = new Date().toISOString().split('T')[0]
@@ -270,9 +242,6 @@ export default function ReportPage() {
     } catch (e) {
       setError(e.response?.data?.detail || e.message || 'Failed to generate primer')
       setStep(0)
-      if (e.response?.status === 401) {
-        setApiKeyConfigured(false)
-      }
       if (e.response?.status === 429 && autoRetryAttemptsRef.current < MAX_AUTO_RETRIES) {
         autoRetryAttemptsRef.current += 1
         const retryAfter = parseInt(e.response?.headers?.['retry-after'], 10)
@@ -354,45 +323,6 @@ export default function ReportPage() {
       {/* ── Step progress ────────────────────────────────────────────── */}
       {step > 0 && step < 5 && (
         <StepProgress currentStep={step} totalSteps={STEPS.length} />
-      )}
-
-      {/* ── API key configuration banner ─────────────────────────────── */}
-      {apiKeyConfigured === false && (
-        <div className="p-5 bg-amber-50 border border-amber-200 rounded-xl">
-          <h3 className="text-sm font-bold text-amber-800 mb-1">Anthropic API Key Required</h3>
-          <p className="text-sm text-amber-700 mb-3">
-            An Anthropic API key is needed to generate the Business &amp; Industry Primer.
-            Get one at{' '}
-            <a
-              href="https://console.anthropic.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline font-medium"
-            >
-              console.anthropic.com
-            </a>.
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            <input
-              type="password"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSaveApiKey()}
-              placeholder="sk-ant-..."
-              className="flex-1 min-w-0 px-3 py-2 text-sm border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
-            />
-            <button
-              onClick={handleSaveApiKey}
-              disabled={apiKeySaving || !apiKeyInput.trim()}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {apiKeySaving ? 'Saving…' : 'Save Key'}
-            </button>
-          </div>
-          {apiKeyError && (
-            <p className="mt-2 text-xs text-red-600">{apiKeyError}</p>
-          )}
-        </div>
       )}
 
       {/* ── Error ───────────────────────────────────────────────────── */}
