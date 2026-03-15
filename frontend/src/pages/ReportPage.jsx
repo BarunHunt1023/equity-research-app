@@ -186,7 +186,7 @@ async function exportPDF(reportRef, companyName) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ReportPage() {
-  const { ticker, companyInfo, ratios } = useAnalysis()
+  const { ticker, companyInfo } = useAnalysis()
   const navigate = useNavigate()
   const reportRef = useRef(null)
 
@@ -216,18 +216,18 @@ export default function ReportPage() {
     setStep(1)
 
     try {
-      // Step 1 — Company Research (pass pre-fetched data to avoid Yahoo Finance re-fetch)
-      const s1 = await primerStep1(ticker, companyInfo || null, ratios || null)
+      // Step 1 — Company Research
+      const s1 = await primerStep1(ticker, companyName)
       if (!s1.company_research) throw new Error('Step 1 returned no content. Please verify your ANTHROPIC_API_KEY is configured on the server.')
       setStep(2)
 
-      // Step 2 — Industry Research (pass pre-fetched company_info to avoid re-fetch)
-      const s2 = await primerStep2(ticker, s1.company_research, companyInfo || null)
+      // Step 2 — Industry Research
+      const s2 = await primerStep2(ticker, s1.company_research, companyName)
       if (!s2.industry_research) throw new Error('Step 2 returned no content. Please verify your ANTHROPIC_API_KEY is configured on the server.')
       setStep(3)
 
       // Step 3 — Synthesis
-      const s3 = await primerStep3(ticker, s1.company_research, s2.industry_research)
+      const s3 = await primerStep3(ticker, s1.company_research, s2.industry_research, companyName)
       if (!s3.primer_draft) throw new Error('Step 3 returned no content. Please verify your ANTHROPIC_API_KEY is configured on the server.')
       setStep(4)
 
@@ -259,7 +259,7 @@ export default function ReportPage() {
         }, 1000)
       }
     }
-  }, [ticker, companyName, companyInfo, ratios])
+  }, [ticker, companyName])
 
   const handleDownloadPDF = useCallback(async () => {
     setPdfLoading(true)

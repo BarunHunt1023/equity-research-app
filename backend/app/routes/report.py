@@ -114,19 +114,9 @@ def primer_step1(req: PrimerStep1Request):
     """Step 1 — Company Research: business model, moat, cost structure, risks."""
     try:
         ticker = req.ticker.upper().strip()
-        # Use pre-fetched data from the frontend if provided to avoid re-fetching
-        if req.company_info and req.ratios:
-            company_info = req.company_info
-            ratios = req.ratios
-        else:
-            financials = yahoo_finance.get_financials(ticker)
-            company_info = req.company_info or yahoo_finance.get_company_info(ticker)
-            ratios = financial_analysis.compute_ratios(financials)
-        result = report_generator.step1_company_research(company_info, ratios)
-        return {
-            "company_research": result,
-            "company_name": company_info.get("name", ticker),
-        }
+        company_name = req.company_name or ticker
+        result = report_generator.step1_company_research(company_name, ticker)
+        return {"company_research": result, "company_name": company_name}
     except Exception as e:
         return _handle_rate_limit(e)
 
@@ -136,9 +126,8 @@ def primer_step2(req: PrimerStep2Request):
     """Step 2 — Industry Research: value chain, competitive landscape, demand drivers."""
     try:
         ticker = req.ticker.upper().strip()
-        # Use pre-fetched data from the frontend if provided to avoid re-fetching
-        company_info = req.company_info or yahoo_finance.get_company_info(ticker)
-        result = report_generator.step2_industry_research(company_info, req.company_research)
+        company_name = req.company_name or ticker
+        result = report_generator.step2_industry_research(company_name, req.company_research)
         return {"industry_research": result}
     except Exception as e:
         return _handle_rate_limit(e)
@@ -149,9 +138,9 @@ def primer_step3(req: PrimerStep3Request):
     """Step 3 — Synthesis: combine research into a coherent 16-page primer draft."""
     try:
         ticker = req.ticker.upper().strip()
-        company_info = yahoo_finance.get_company_info(ticker)
+        company_name = req.company_name or ticker
         result = report_generator.step3_synthesis(
-            company_info, req.company_research, req.industry_research
+            company_name, req.company_research, req.industry_research
         )
         return {"primer_draft": result}
     except Exception as e:

@@ -125,16 +125,11 @@ def _claude(prompt: str, max_tokens: int) -> str:
             raise  # re-raise so the route handler converts it to HTTP 429
 
 
-def step1_company_research(company_info: dict, ratios: dict) -> str:
+def step1_company_research(company_name: str, ticker: str) -> str:
     """Call 1 — Company Research (max_tokens=4000)."""
-    data_summary = _build_data_summary(company_info, ratios, None, None, None)
-    name = company_info.get("name", "the company")
-    ticker = company_info.get("ticker", "")
+    name = company_name or ticker
 
     prompt = f"""You are a senior investment analyst. Conduct deep research on {name} ({ticker}).
-
-Financial context already computed by the research platform:
-{data_summary}
 
 Analyze and write in detailed prose:
 (1) Business model — how it makes money, all revenue streams and their % mix, pricing model, recurring vs transactional revenue.
@@ -150,9 +145,9 @@ Write 8-10 pages of investor-grade prose. Cite sources. No bullet dumps. No fluf
     return _claude(prompt, max_tokens=4000)
 
 
-def step2_industry_research(company_info: dict, company_research: str) -> str:
+def step2_industry_research(company_name: str, company_research: str) -> str:
     """Call 2 — Industry Research (max_tokens=4000)."""
-    name = company_info.get("name", "the company")
+    name = company_name or "the company"
 
     prompt = f"""You are a senior industry analyst. Based on the company research below, identify the industry {name} operates in and conduct deep research on it.
 
@@ -174,9 +169,9 @@ Write 6-8 pages of investor-grade prose. Cite sources."""
     return _claude(prompt, max_tokens=4000)
 
 
-def step3_synthesis(company_info: dict, company_research: str, industry_research: str) -> str:
+def step3_synthesis(company_name: str, company_research: str, industry_research: str) -> str:
     """Call 3 — Synthesis into 16-page primer (max_tokens=6000)."""
-    name = company_info.get("name", "the company")
+    name = company_name or "the company"
 
     prompt = f"""Using the company research and industry research below, write a single coherent 16-page Business & Industry Primer for {name} with these exact sections:
 
@@ -232,11 +227,12 @@ def _generate_business_primer(company_info: dict, ratios: dict) -> dict:
     if not ANTHROPIC_API_KEY or not anthropic:
         return _fallback_primer(company_info)
 
+    name = company_info.get("name", "the company")
+    ticker = company_info.get("ticker", "")
     try:
-        company_research = step1_company_research(company_info, ratios)
-        industry_research = step2_industry_research(company_info, company_research)
-        primer_draft = step3_synthesis(company_info, company_research, industry_research)
-        name = company_info.get("name", "the company")
+        company_research = step1_company_research(name, ticker)
+        industry_research = step2_industry_research(name, company_research)
+        primer_draft = step3_synthesis(name, company_research, industry_research)
         final = step4_factcheck(primer_draft, name)
         return {"business_primer": final}
     except Exception:
