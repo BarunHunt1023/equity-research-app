@@ -89,6 +89,13 @@ def _handle_rate_limit(e: Exception):
                 status_code=429,
                 detail="The AI service is temporarily rate-limited. Please wait a moment and try again.",
             )
+    # Catch Yahoo Finance and other data-source rate limits (YFRateLimitError, HTTP 429s, etc.)
+    err_str = str(e).lower()
+    if "too many requests" in err_str or "rate limit" in err_str:
+        raise HTTPException(
+            status_code=429,
+            detail="Data service is rate-limited. Please wait a moment and try again.",
+        )
     raise HTTPException(status_code=500, detail=str(e))
 
 
