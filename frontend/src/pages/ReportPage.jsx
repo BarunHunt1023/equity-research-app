@@ -218,19 +218,23 @@ export default function ReportPage() {
     try {
       // Step 1 — Company Research
       const s1 = await primerStep1(ticker)
+      if (!s1.company_research) throw new Error('Step 1 returned no content. Please verify your ANTHROPIC_API_KEY is configured on the server.')
       setStep(2)
 
       // Step 2 — Industry Research
       const s2 = await primerStep2(ticker, s1.company_research)
+      if (!s2.industry_research) throw new Error('Step 2 returned no content. Please verify your ANTHROPIC_API_KEY is configured on the server.')
       setStep(3)
 
       // Step 3 — Synthesis
       const s3 = await primerStep3(ticker, s1.company_research, s2.industry_research)
+      if (!s3.primer_draft) throw new Error('Step 3 returned no content. Please verify your ANTHROPIC_API_KEY is configured on the server.')
       setStep(4)
 
       // Step 4 — Fact-check
       const name = s1.company_name || companyName
       const s4 = await primerStep4(s3.primer_draft, name)
+      if (!s4.business_primer) throw new Error('Step 4 returned no content. Please verify your ANTHROPIC_API_KEY is configured on the server.')
       setStep(5)
 
       autoRetryAttemptsRef.current = 0

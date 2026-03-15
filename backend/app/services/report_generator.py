@@ -97,8 +97,16 @@ def _claude(prompt: str, max_tokens: int) -> str:
     retry-after header returned by the API on 429 rate-limit responses.
     Falls back to a manual 60-second wait if the SDK retries are exhausted.
     """
-    if not ANTHROPIC_API_KEY or not anthropic:
-        return ""
+    if not anthropic:
+        raise ValueError(
+            "The 'anthropic' Python package is not installed. "
+            "Run: pip install anthropic"
+        )
+    if not ANTHROPIC_API_KEY:
+        raise ValueError(
+            "ANTHROPIC_API_KEY is not configured. "
+            "Please set this environment variable to generate AI-powered reports."
+        )
     # max_retries=5 lets the SDK handle 429/529 with proper retry-after timing
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, max_retries=5)
     try:
