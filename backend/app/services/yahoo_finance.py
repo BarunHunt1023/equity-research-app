@@ -130,6 +130,11 @@ def get_company_info(ticker: str, retries: int = 3) -> dict:
             "fifty_two_week_high": _safe_val(info.get("fiftyTwoWeekHigh")),
             "fifty_two_week_low": _safe_val(info.get("fiftyTwoWeekLow")),
             "description": info.get("longBusinessSummary", ""),
+            "target_mean_price": _safe_val(info.get("targetMeanPrice")),
+            "target_low_price": _safe_val(info.get("targetLowPrice")),
+            "target_high_price": _safe_val(info.get("targetHighPrice")),
+            "number_of_analyst_opinions": info.get("numberOfAnalystOpinions"),
+            "recommendation_key": info.get("recommendationKey", ""),
         }
 
     result = _retry(_fetch, retries)
@@ -151,6 +156,32 @@ def get_financials(ticker: str, retries: int = 3) -> dict:
             "balance_sheet": _df_to_dict(t.balance_sheet),
             "cash_flow": _df_to_dict(t.cashflow),
         }
+
+    result = _retry(_fetch, retries)
+    _cache_set(cache_key, result)
+    return result
+
+
+def get_dividend_history(ticker: str, retries: int = 3) -> list:
+    """Fetch dividend history as list of {date, dividend} dicts."""
+    cache_key = f"dividends:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    def _fetch():
+        _rate_limit()
+        t = yf.Ticker(ticker)
+        divs = t.dividends
+        if divs is None or len(divs) == 0:
+            return []
+        result = []
+        for date, amount in divs.items():
+            result.append({
+                "date": str(date)[:10],
+                "dividend": float(amount),
+            })
+        return result[-20:]  # last 20 dividends
 
     result = _retry(_fetch, retries)
     _cache_set(cache_key, result)

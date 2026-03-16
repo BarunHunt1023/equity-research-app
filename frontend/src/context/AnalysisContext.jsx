@@ -20,6 +20,7 @@ const initialState = {
   screenerTables: null,
   shareholders: [],
   news: [],
+  dividendHistory: [],
 }
 
 function analysisReducer(state, action) {
@@ -42,6 +43,7 @@ function analysisReducer(state, action) {
         screenerTables: action.payload.screener_tables ?? null,
         shareholders: action.payload.shareholders || [],
         news: action.payload.news || [],
+        dividendHistory: action.payload.dividend_history || [],
       }
     case 'SET_FORECAST':
       return { ...state, forecast: action.payload, loading: false }
