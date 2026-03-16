@@ -4,7 +4,7 @@ import { useAnalysis } from '../context/AnalysisContext'
 import ReactMarkdown from 'react-markdown'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
-import { primerStep1, primerStep2, primerStep3, primerStep4 } from '../api/client'
+import { primerStep1, primerStep2, primerStep3, primerStep4, getConfigStatus, setAnthropicKey } from '../api/client'
 
 // ── Step metadata ─────────────────────────────────────────────────────────────
 const STEPS = [
@@ -199,6 +199,37 @@ export default function ReportPage() {
   const autoRetryAttemptsRef = useRef(0)
   const MAX_AUTO_RETRIES = 2
 
+  // API key setup state
+  const [apiKeyNeeded, setApiKeyNeeded] = useState(false)
+  const [apiKeyInput, setApiKeyInput]   = useState('')
+  const [savingKey, setSavingKey]       = useState(false)
+  const [keySaveError, setKeySaveError] = useState('')
+
+  // Check if key is configured on mount
+  useEffect(() => {
+    getConfigStatus()
+      .then(({ anthropic_configured }) => {
+        if (!anthropic_configured) setApiKeyNeeded(true)
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleSaveKey = useCallback(async () => {
+    const key = apiKeyInput.trim()
+    if (!key) return
+    setSavingKey(true)
+    setKeySaveError('')
+    try {
+      await setAnthropicKey(key)
+      setApiKeyNeeded(false)
+      setError('')
+    } catch (e) {
+      setKeySaveError(e.response?.data?.detail || 'Failed to save key. Please try again.')
+    } finally {
+      setSavingKey(false)
+    }
+  }, [apiKeyInput])
+
   // Cleanup interval on unmount
   useEffect(() => () => clearInterval(retryTimerRef.current), [])
 
@@ -240,8 +271,12 @@ export default function ReportPage() {
       autoRetryAttemptsRef.current = 0
       setPrimer(s4.business_primer)
     } catch (e) {
-      setError(e.response?.data?.detail || e.message || 'Failed to generate primer')
+      const detail = e.response?.data?.detail || e.message || 'Failed to generate primer'
+      setError(detail)
       setStep(0)
+      if (e.response?.status === 401) {
+        setApiKeyNeeded(true)
+      }
       if (e.response?.status === 429 && autoRetryAttemptsRef.current < MAX_AUTO_RETRIES) {
         autoRetryAttemptsRef.current += 1
         const retryAfter = parseInt(e.response?.headers?.['retry-after'], 10)
@@ -325,8 +360,53 @@ export default function ReportPage() {
         <StepProgress currentStep={step} totalSteps={STEPS.length} />
       )}
 
+      {/* ── API Key Setup ────────────────────────────────────────────── */}
+      {apiKeyNeeded && (
+        <div className="p-5 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+          <div className="flex items-start gap-3 mb-3">
+            <span className="text-amber-500 text-xl leading-none">🔑</span>
+            <div>
+              <p className="font-semibold text-amber-900 mb-1">Anthropic API Key Required</p>
+              <p className="text-amber-800 leading-relaxed">
+                The primer generator uses the Claude AI model. Enter your existing API key from{' '}
+                <a
+                  href="https://console.anthropic.com/settings/keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline font-medium"
+                >
+                  console.anthropic.com
+                </a>
+                . <strong>No extra subscription needed</strong> — use the key you already have.
+                The key is saved locally on this server only.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 items-center flex-wrap">
+            <input
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveKey()}
+              placeholder="sk-ant-..."
+              className="flex-1 min-w-0 px-3 py-2 border border-amber-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+            <button
+              onClick={handleSaveKey}
+              disabled={savingKey || !apiKeyInput.trim()}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {savingKey ? 'Saving…' : 'Save Key'}
+            </button>
+          </div>
+          {keySaveError && (
+            <p className="mt-2 text-red-600 text-xs">{keySaveError}</p>
+          )}
+        </div>
+      )}
+
       {/* ── Error ───────────────────────────────────────────────────── */}
-      {error && (
+      {error && !apiKeyNeeded && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
           {error}
         </div>
