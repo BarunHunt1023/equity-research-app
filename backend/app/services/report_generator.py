@@ -1,9 +1,9 @@
-"""AI-Enhanced Equity Research Report Generator using Claude CLI — 4-Step Business Primer."""
+"""AI-Enhanced Equity Research Report Generator using Anthropic SDK — 4-Step Business Primer."""
 
-import subprocess
 import datetime
-import os
-from app.config import ANTHROPIC_API_KEY
+import anthropic
+from app.config import get_anthropic_key
+from app.services.business_primer_service import run_business_overview_skill
 
 
 def _format_number(n, decimals=1):
@@ -86,18 +86,14 @@ def _build_data_summary(company_info, ratios, forecast, dcf, relative_val):
 # ---------------------------------------------------------------------------
 
 def _claude(prompt: str, max_tokens: int) -> str:
-    """Helper: run a single Claude CLI call and return the text response."""
-    env = {**os.environ, 'PATH': f'/opt/node22/bin:{os.environ.get("PATH", "")}'}
-    result = subprocess.run(
-        ['claude', '--model', 'claude-sonnet-4-6', '-p', prompt],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env=env,
+    """Helper: run a single Claude API call and return the text response."""
+    client = anthropic.Anthropic(api_key=get_anthropic_key())
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
     )
-    if result.returncode != 0:
-        raise ValueError(f"Claude CLI error: {result.stderr.strip() or 'unknown error'}")
-    return result.stdout.strip()
+    return message.content[0].text
 
 
 def step1_company_research(company_name: str, ticker: str) -> str:
@@ -197,15 +193,11 @@ PRIMER DRAFT:
 # Full 4-step pipeline (used by the legacy /report endpoint)
 # ---------------------------------------------------------------------------
 
-def _generate_business_primer(company_info: dict, ratios: dict) -> dict:
-    """Run all 4 sequential Claude CLI calls and return the final business primer."""
+def _generate_business_primer(company_info: dict, data_summary: str) -> dict:
+    """Run the Business Overview Skill pipeline and return the final business primer."""
     name = company_info.get("name", "the company")
-    ticker = company_info.get("ticker", "")
     try:
-        company_research = step1_company_research(name, ticker)
-        industry_research = step2_industry_research(name, company_research)
-        primer_draft = step3_synthesis(name, company_research, industry_research)
-        final = step4_factcheck(primer_draft, name)
+        final = run_business_overview_skill(name, data_summary)
         return {"business_primer": final}
     except Exception:
         return _fallback_primer(company_info)
@@ -240,7 +232,8 @@ def generate_report(
     relative_val: dict,
 ) -> dict:
     """Generate a Business & Industry Primer report."""
-    primer = _generate_business_primer(company_info, ratios)
+    data_summary = _build_data_summary(company_info, ratios, forecast, dcf, relative_val)
+    primer = _generate_business_primer(company_info, data_summary)
 
     # Compute composite target price (kept for reference in the response)
     prices = []
