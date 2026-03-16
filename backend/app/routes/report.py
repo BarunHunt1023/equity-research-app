@@ -84,12 +84,27 @@ def _rate_limit_response(detail: str, retry_after: int) -> JSONResponse:
 
 
 def _handle_rate_limit(e: Exception):
-    """Re-raise rate limit errors as HTTP 429, all others as HTTP 500."""
+    """Re-raise rate limit errors as HTTP 429, auth errors as 401, all others as HTTP 500."""
     err_str = str(e).lower()
     if "too many requests" in err_str or "rate limit" in err_str or "429" in err_str:
         return _rate_limit_response(
             "Data service is rate-limited. Please wait a moment and try again.",
             retry_after=30,
+        )
+    if (
+        "authentication" in err_str
+        or "auth_token" in err_str
+        or "x-api-key" in err_str
+        or "could not resolve" in err_str
+        or "api_key" in err_str
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Anthropic API key not configured. "
+                "Enter your existing key from console.anthropic.com — "
+                "no extra subscription needed if you already have one."
+            ),
         )
     raise HTTPException(status_code=500, detail=str(e))
 
