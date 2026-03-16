@@ -41,6 +41,12 @@ def analyze(req: AnalyzeRequest):
         except Exception:
             pass
 
+        dividend_history = []
+        try:
+            dividend_history = yahoo_finance.get_dividend_history(ticker)
+        except Exception:
+            pass
+
         return {
             "company_info": company_info,
             "financials": financials,
@@ -50,6 +56,7 @@ def analyze(req: AnalyzeRequest):
             "screener_tables": screener_tables,
             "shareholders": shareholders,
             "news": news,
+            "dividend_history": dividend_history,
         }
     except json.JSONDecodeError:
         raise HTTPException(
