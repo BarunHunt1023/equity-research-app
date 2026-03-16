@@ -3,6 +3,7 @@
 import datetime
 import anthropic
 from app.config import get_anthropic_key
+from app.services.business_primer_service import run_business_overview_skill
 
 
 def _format_number(n, decimals=1):
@@ -192,15 +193,11 @@ PRIMER DRAFT:
 # Full 4-step pipeline (used by the legacy /report endpoint)
 # ---------------------------------------------------------------------------
 
-def _generate_business_primer(company_info: dict, ratios: dict) -> dict:
-    """Run all 4 sequential Claude CLI calls and return the final business primer."""
+def _generate_business_primer(company_info: dict, data_summary: str) -> dict:
+    """Run the Business Overview Skill pipeline and return the final business primer."""
     name = company_info.get("name", "the company")
-    ticker = company_info.get("ticker", "")
     try:
-        company_research = step1_company_research(name, ticker)
-        industry_research = step2_industry_research(name, company_research)
-        primer_draft = step3_synthesis(name, company_research, industry_research)
-        final = step4_factcheck(primer_draft, name)
+        final = run_business_overview_skill(name, data_summary)
         return {"business_primer": final}
     except Exception:
         return _fallback_primer(company_info)
@@ -235,7 +232,8 @@ def generate_report(
     relative_val: dict,
 ) -> dict:
     """Generate a Business & Industry Primer report."""
-    primer = _generate_business_primer(company_info, ratios)
+    data_summary = _build_data_summary(company_info, ratios, forecast, dcf, relative_val)
+    primer = _generate_business_primer(company_info, data_summary)
 
     # Compute composite target price (kept for reference in the response)
     prices = []
