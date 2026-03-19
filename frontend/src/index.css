@@ -4,34 +4,128 @@
 
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #F8FAFC;
 }
 
 @layer components {
+  /* Cards */
   .card {
     @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
   }
+  .card-sm {
+    @apply bg-white rounded-lg border border-gray-200 p-4;
+  }
+
+  /* Buttons */
   .btn-primary {
     @apply bg-primary-600 text-white px-6 py-2.5 rounded-lg font-medium
            hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primer {
+    @apply bg-[#1B3A8A] text-white px-8 py-3.5 rounded-lg font-semibold text-base
+           hover:bg-[#152e70] transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+           flex items-center justify-center gap-2 w-full;
   }
   .btn-secondary {
     @apply bg-white text-gray-700 px-6 py-2.5 rounded-lg font-medium border border-gray-200
            hover:bg-gray-50 transition-colors;
   }
+  .btn-ghost {
+    @apply text-gray-500 px-3 py-2 rounded-lg font-medium hover:bg-gray-100 transition-colors;
+  }
+  .btn-success {
+    @apply bg-emerald-600 text-white px-6 py-2.5 rounded-lg font-medium
+           hover:bg-emerald-700 transition-colors;
+  }
+
+  /* Inputs */
   .input-field {
     @apply w-full px-4 py-2.5 rounded-lg border border-gray-200 focus:border-primary-500
-           focus:ring-2 focus:ring-primary-100 outline-none transition-all;
+           focus:ring-2 focus:ring-primary-100 outline-none transition-all bg-white;
   }
+
+  /* Tabs */
   .tab-active {
     @apply text-primary-600 border-b-2 border-primary-600 font-medium;
   }
   .tab-inactive {
     @apply text-gray-500 hover:text-gray-700 font-medium;
   }
-  .metric-card {
-    @apply bg-white rounded-lg p-4 border border-gray-100;
+
+  /* Sidebar nav items */
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm font-medium
+           text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition-colors cursor-pointer;
   }
+  .sidebar-link-active {
+    @apply flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg text-sm font-semibold
+           bg-blue-50 text-blue-700 border-l-2 border-blue-600 transition-colors;
+  }
+
+  /* KPI Cards */
+  .kpi-card {
+    @apply bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-1;
+  }
+  .kpi-value {
+    @apply text-2xl font-bold text-gray-900 tabular-nums;
+  }
+  .kpi-label {
+    @apply text-xs font-semibold uppercase tracking-wider text-gray-400;
+  }
+  .kpi-change-up {
+    @apply inline-flex items-center gap-1 text-xs font-semibold text-emerald-600
+           bg-emerald-50 px-1.5 py-0.5 rounded;
+  }
+  .kpi-change-down {
+    @apply inline-flex items-center gap-1 text-xs font-semibold text-red-600
+           bg-red-50 px-1.5 py-0.5 rounded;
+  }
+
+  /* Tables */
+  .data-table {
+    @apply w-full text-sm border-collapse;
+  }
+  .data-table th {
+    @apply px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider
+           text-gray-500 border-b border-gray-200 bg-gray-50;
+  }
+  .data-table td {
+    @apply px-4 py-2.5 border-b border-gray-100 text-gray-700 tabular-nums;
+  }
+  .data-table tr:hover td {
+    @apply bg-gray-50;
+  }
+  .data-table td.bold {
+    @apply font-semibold text-gray-900;
+  }
+  .data-table th.ltm, .data-table td.ltm {
+    @apply bg-blue-50 text-blue-900 font-semibold;
+  }
+
+  /* Section headers */
   .section-title {
     @apply text-xl font-semibold text-gray-900 mb-4;
+  }
+  .section-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  /* Badge */
+  .badge-green {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
+           bg-emerald-50 text-emerald-700 border border-emerald-200;
+  }
+  .badge-blue {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
+           bg-blue-50 text-blue-700 border border-blue-200;
+  }
+  .badge-gray {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold
+           bg-gray-100 text-gray-600;
+  }
+
+  /* Metric card */
+  .metric-card {
+    @apply bg-white rounded-lg p-4 border border-gray-100;
   }
 }
