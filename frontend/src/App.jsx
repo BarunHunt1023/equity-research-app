@@ -6,6 +6,7 @@ import ForecastPage from './pages/ForecastPage'
 import ValuationPage from './pages/ValuationPage'
 import OnePagerPage from './pages/OnePagerPage'
 import ReportPage from './pages/ReportPage'
+import PeerBenchmarkingPage from './pages/PeerBenchmarkingPage'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="/valuation" element={<ValuationPage />} />
           <Route path="/one-pager" element={<OnePagerPage />} />
           <Route path="/report" element={<ReportPage />} />
+          <Route path="/peer-benchmarking" element={<PeerBenchmarkingPage />} />
         </Routes>
       </main>
     </div>
