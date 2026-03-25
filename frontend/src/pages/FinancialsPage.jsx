@@ -5,7 +5,8 @@ import FinancialTable from '../components/FinancialTable'
 import ScreenerTable from '../components/ScreenerTable'
 import RevenueEarningsChart from '../components/charts/RevenueEarningsChart'
 import MarginChart from '../components/charts/MarginChart'
-import StockPriceChart from '../components/charts/StockPriceChart'
+import TradingChart from '../components/charts/TradingChart'
+import NewsFeed from '../components/NewsFeed'
 import AppSidebar from '../components/AppSidebar'
 
 const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' }
@@ -232,7 +233,7 @@ function AnalystInsightPanel({ companyInfo, ratios }) {
 }
 
 export default function FinancialsPage() {
-  const { companyInfo, financials, ratios, historicalPrices, historicalMetrics, screenerTables } = useAnalysis()
+  const { companyInfo, financials, ratios, historicalPrices, historicalMetrics, screenerTables, news } = useAnalysis()
   const [tab, setTab] = useState('Income Statement')
   const [stmtMode, setStmtMode] = useState('annual')
   const navigate = useNavigate()
@@ -503,15 +504,28 @@ export default function FinancialsPage() {
               </div>
             )}
 
-            {/* Stock Price */}
+            {/* Trading Chart preview */}
             {historicalPrices?.length > 0 && (
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
-                  5-Year Price History
-                </h3>
-                <div className="h-[140px]">
-                  <StockPriceChart historicalPrices={historicalPrices} compact />
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                    Price Chart
+                  </h3>
+                  <button
+                    onClick={() => navigate('/chart')}
+                    className="flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    Full Chart
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </button>
                 </div>
+                <TradingChart
+                  priceHistory={historicalPrices}
+                  ticker={companyInfo?.ticker}
+                  compact
+                />
               </div>
             )}
 
@@ -542,6 +556,16 @@ export default function FinancialsPage() {
 
             {/* Analyst Insight */}
             <AnalystInsightPanel companyInfo={companyInfo} ratios={ratios} />
+
+            {/* News Feed */}
+            {news?.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
+                  Latest News
+                </h3>
+                <NewsFeed news={news} maxItems={5} />
+              </div>
+            )}
           </div>
         </div>
       </div>

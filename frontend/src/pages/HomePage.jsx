@@ -29,11 +29,39 @@ const STEPS = [
 
 const FEATURES = [
   {
+    badge: 'TRADINGVIEW-STYLE',
+    badgeColor: 'bg-indigo-50 text-indigo-700',
+    icon: (
+      <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+      </svg>
+    ),
+    iconBg: 'bg-indigo-50',
+    title: 'Trading Chart',
+    desc: 'Interactive candlestick charts with RSI, MACD, Bollinger Bands, Moving Averages and volume overlays.',
+    link: 'OPEN CHART',
+    to: '/chart',
+  },
+  {
+    badge: 'NIFTY 500',
+    badgeColor: 'bg-teal-50 text-teal-700',
+    icon: (
+      <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+      </svg>
+    ),
+    iconBg: 'bg-teal-50',
+    title: 'Stock Screener',
+    desc: 'Filter Nifty 500 stocks by sector, P/E, market cap, ROE, margins and revenue growth in real-time.',
+    link: 'RUN SCREENER',
+    to: '/screener',
+  },
+  {
     badge: 'MODEL 2.4',
     badgeColor: 'bg-blue-50 text-blue-700',
     icon: (
       <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
       </svg>
     ),
     iconBg: 'bg-blue-50',
@@ -69,6 +97,20 @@ const FEATURES = [
     desc: 'Comprehensive synthesis of transcripts, filings, and news into a structured 15-page equity research primer.',
     link: 'BROWSE LIBRARY',
     to: '/report',
+  },
+  {
+    badge: 'LIVE PRICES',
+    badgeColor: 'bg-yellow-50 text-yellow-700',
+    icon: (
+      <svg className="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+      </svg>
+    ),
+    iconBg: 'bg-yellow-50',
+    title: 'Watchlist',
+    desc: 'Track your favourite stocks with live prices, % change, market cap and P/E auto-refreshing every minute.',
+    link: 'MY WATCHLIST',
+    to: '/watchlist',
   },
 ]
 
@@ -251,7 +293,7 @@ export default function HomePage() {
 
       {/* Feature cards */}
       <div className="max-w-5xl mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {FEATURES.map((f) => (
             <div key={f.title} className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-4">
