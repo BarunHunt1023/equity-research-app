@@ -1,18 +1,45 @@
 import { useNavigate } from 'react-router-dom'
-import { useAnalysis } from '../context/AnalysisContext'
+import { useState, useEffect } from 'react'
+import { useAnalysis, useAnalysisDispatch } from '../context/AnalysisContext'
+import { getPriceHistory } from '../api/client'
 import TradingChart from '../components/charts/TradingChart'
 import AppSidebar from '../components/AppSidebar'
 
 const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' }
 
 export default function ChartPage() {
-  const { companyInfo, historicalPrices, dcf } = useAnalysis()
+  const { companyInfo, historicalPrices, dcf, ticker } = useAnalysis()
+  const dispatch = useAnalysisDispatch()
   const navigate = useNavigate()
+  const [fetchedPrices, setFetchedPrices] = useState([])
+  const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState('')
 
   const impliedPrice = dcf?.implied_share_price ?? 0
   const sym = CURRENCY_SYMBOLS[companyInfo?.currency] || '$'
 
-  if (!companyInfo && !historicalPrices?.length) {
+  // When historical prices are empty (e.g. uploaded file) but we have a real ticker,
+  // fetch price history directly from Yahoo Finance.
+  useEffect(() => {
+    const t = companyInfo?.ticker || ticker
+    if (historicalPrices?.length > 0 || !t || t === 'UPLOADED' || fetching) return
+    setFetching(true)
+    setFetchError('')
+    getPriceHistory(t)
+      .then(res => {
+        const prices = res?.prices || []
+        setFetchedPrices(prices)
+        if (prices.length > 0) {
+          dispatch({ type: 'SET_PRICE_HISTORY', payload: prices })
+        }
+      })
+      .catch(e => setFetchError('Could not load price chart: ' + (e.response?.data?.detail || e.message)))
+      .finally(() => setFetching(false))
+  }, [companyInfo?.ticker, ticker]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const displayPrices = historicalPrices?.length > 0 ? historicalPrices : fetchedPrices
+
+  if (!companyInfo && !displayPrices?.length) {
     return (
       <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 flex bg-gray-50 min-h-[calc(100vh-3.5rem)]">
         <AppSidebar />
@@ -119,11 +146,23 @@ export default function ChartPage() {
 
         {/* Main chart card */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <TradingChart
-            priceHistory={historicalPrices}
-            impliedPrice={impliedPrice}
-            ticker={companyInfo?.ticker}
-          />
+          {fetching ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-gray-500">Loading price chart from Yahoo Finance…</p>
+            </div>
+          ) : fetchError ? (
+            <div className="py-10 text-center">
+              <p className="text-sm text-red-500 mb-2">{fetchError}</p>
+              <p className="text-xs text-gray-400">Price history is only available for tickers searchable on Yahoo Finance.</p>
+            </div>
+          ) : (
+            <TradingChart
+              priceHistory={displayPrices}
+              impliedPrice={impliedPrice}
+              ticker={companyInfo?.ticker}
+            />
+          )}
         </div>
 
         {/* Analyst target + description */}

@@ -55,6 +55,8 @@ function analysisReducer(state, action) {
       return { ...state, report: action.payload, loading: false }
     case 'SET_UPLOADED_DATA':
       return { ...state, uploadedData: action.payload, loading: false }
+    case 'SET_PRICE_HISTORY':
+      return { ...state, historicalPrices: action.payload }
     case 'RESET':
       return { ...initialState }
     default:

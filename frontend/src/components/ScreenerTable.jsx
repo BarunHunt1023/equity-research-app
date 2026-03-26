@@ -25,8 +25,27 @@ export default function ScreenerTable({
 }) {
   const t = viewMode === 'terminal'
 
+  // ── Column date formatter ────────────────────────────────────────────────
+  // Converts "2023-09-30 00:00:00" or "2023-09-30T00:00:00" → "Sep-23"
+  // Passes through already-formatted labels like "Mar-22", "TTM", "LTM" unchanged
+  function fmtColHeader(col) {
+    if (!col || typeof col !== 'string') return col
+    // Already clean (e.g. "Mar-22", "TTM", "LTM", "9 YEARS")
+    if (!/^\d{4}-\d{2}-\d{2}/.test(col)) return col
+    try {
+      const d = new Date(col.replace(' ', 'T').split('T')[0])
+      if (isNaN(d.getTime())) return col
+      return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
+    } catch {
+      return col
+    }
+  }
+
   // ── Formatters ──────────────────────────────────────────────────────────
-  function fmtVal(value, rowType) {
+  // Labels that are per-share values (show with decimals, not rounded to Crores)
+  const PER_SHARE_LABELS = ['EPS', 'Earnings Per Share', 'Book Value', 'Dividend', 'Price', 'Face Value']
+
+  function fmtVal(value, rowType, rowLabel) {
     if (value === null || value === undefined) return '—'
     if (rowType === 'italic') {
       // Percentage / ratio values stored as floats (e.g. 13.5 → "14%" or "13.5%")
@@ -37,6 +56,13 @@ export default function ScreenerTable({
         return n.toFixed(1)
       }
       return Math.round(n).toString() + '%'
+    }
+    // Per-share labels: show with up to 2 decimal places
+    if (rowLabel && PER_SHARE_LABELS.some(l => rowLabel.toLowerCase().includes(l.toLowerCase()))) {
+      const n = Number(value)
+      if (isNaN(n)) return String(value)
+      if (n === 0) return '—'
+      return n.toFixed(2)
     }
     // Absolute values: integer
     const n = Number(value)
@@ -141,7 +167,7 @@ export default function ScreenerTable({
                   } ${col === 'TTM' || col === 'LTM' ? (t ? 'text-amber-300' : 'text-blue-700 font-bold') : ''}`}
                   style={{ minWidth: '56px' }}
                 >
-                  {col}
+                  {fmtColHeader(col)}
                 </th>
               ))}
 
@@ -210,7 +236,7 @@ export default function ScreenerTable({
                       key={`val-${vi}`}
                       className={valueCellClass(row.type)}
                     >
-                      {fmtVal(val, row.type)}
+                      {fmtVal(val, row.type, row.label)}
                     </td>
                   ))}
 

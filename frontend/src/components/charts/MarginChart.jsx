@@ -17,7 +17,7 @@ const MARGIN_CONFIG = [
   { key: 'net_margin',       label: 'Net Margin',       researchColor: '#6d28d9', terminalColor: '#a78bfa' },
 ];
 
-const MarginChart = ({ historicalMetrics, viewMode = 'research' }) => {
+const MarginChart = ({ historicalMetrics, viewMode = 'research', compact = false }) => {
   const t = viewMode === 'terminal';
 
   const chartData = useMemo(() => {
@@ -64,11 +64,13 @@ const MarginChart = ({ historicalMetrics, viewMode = 'research' }) => {
   const legendStyle = { fontSize: 11, color: t ? '#94a3b8' : '#6b7280' };
 
   return (
-    <div style={{ background: bgColor }}>
-      <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: t ? '#f59e0b' : '#0a1628', marginBottom: 12 }}>
-        Margin Trends
-      </p>
-      <ResponsiveContainer width="100%" height={300}>
+    <div style={{ background: bgColor, height: compact ? '100%' : 'auto', display: compact ? 'flex' : 'block', flexDirection: 'column' }}>
+      {!compact && (
+        <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: t ? '#f59e0b' : '#0a1628', marginBottom: 12 }}>
+          Margin Trends
+        </p>
+      )}
+      <ResponsiveContainer width="100%" height={compact ? '100%' : 300}>
         <LineChart data={chartData} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
           <XAxis

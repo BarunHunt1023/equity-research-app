@@ -69,6 +69,17 @@ NIFTY_500 = [
 ]
 
 
+@router.get("/price-history/{ticker}")
+def price_history(ticker: str):
+    """Fetch 5-year OHLCV price history for any ticker."""
+    from app.services.yahoo_finance import get_historical_prices
+    try:
+        records = get_historical_prices(ticker, period="5y")
+        return {"ticker": ticker.upper(), "prices": records}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.get("/quote/{ticker}")
 def get_quote(ticker: str):
     """Lightweight live quote for watchlist."""
