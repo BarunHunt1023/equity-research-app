@@ -7,6 +7,7 @@ import RevenueEarningsChart from '../components/charts/RevenueEarningsChart'
 import MarginChart from '../components/charts/MarginChart'
 import TradingChart from '../components/charts/TradingChart'
 import NewsFeed from '../components/NewsFeed'
+import ShareholdingChart from '../components/charts/ShareholdingChart'
 import AppSidebar from '../components/AppSidebar'
 
 const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥' }
@@ -45,6 +46,66 @@ const SCREENER_TABS = [
   { key: 'balance_sheet', label: 'Balance Sheet', title: 'Balance Sheet' },
   { key: 'cash_flow', label: 'Cashflows', title: 'Cash Flow Statement' },
 ]
+
+function calcCAGR(start, end, years) {
+  if (!start || !end || start <= 0 || years <= 0) return null
+  return Math.pow(end / start, 1 / years) - 1
+}
+
+function CAGRPanel({ historicalMetrics }) {
+  if (!historicalMetrics || historicalMetrics.length < 2) return null
+  const sorted = [...historicalMetrics].sort((a, b) => (a.period > b.period ? 1 : -1))
+  const last = sorted[sorted.length - 1]
+  const ago3 = sorted.length >= 4 ? sorted[sorted.length - 4] : null
+  const ago5 = sorted.length >= 6 ? sorted[sorted.length - 6] : null
+  const first = sorted[0]
+
+  const metrics = [
+    { label: 'Revenue', key: 'revenue' },
+    { label: 'EBITDA', key: 'ebitda' },
+    { label: 'Net Income', key: 'net_income' },
+  ]
+
+  return (
+    <div className="px-6 pb-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">Historical CAGR</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Metric</th>
+                {ago3 && <th className="text-right pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">3Y CAGR</th>}
+                {ago5 && <th className="text-right pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">5Y CAGR</th>}
+                <th className="text-right pb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">Since Inception</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map(({ label, key }) => {
+                const cagr3 = ago3 ? calcCAGR(ago3[key], last[key], 3) : null
+                const cagr5 = ago5 ? calcCAGR(ago5[key], last[key], 5) : null
+                const cagrFull = calcCAGR(first[key], last[key], sorted.length - 1)
+                const fmt = (v) => v != null ? (
+                  <span className={`font-semibold tabular-nums ${v >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {v >= 0 ? '+' : ''}{(v * 100).toFixed(1)}%
+                  </span>
+                ) : <span className="text-gray-300">—</span>
+                return (
+                  <tr key={key} className="border-b border-gray-50">
+                    <td className="py-2 text-gray-700 font-medium">{label}</td>
+                    {ago3 && <td className="py-2 text-right">{fmt(cagr3)}</td>}
+                    {ago5 && <td className="py-2 text-right">{fmt(cagr5)}</td>}
+                    <td className="py-2 text-right">{fmt(cagrFull)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function KPICard({ label, value, change, changeType, sub, mini }) {
   const changeUp = changeType === 'up'
@@ -233,7 +294,7 @@ function AnalystInsightPanel({ companyInfo, ratios }) {
 }
 
 export default function FinancialsPage() {
-  const { companyInfo, financials, ratios, historicalPrices, historicalMetrics, screenerTables, news } = useAnalysis()
+  const { companyInfo, financials, ratios, historicalPrices, historicalMetrics, screenerTables, news, shareholders, dcf, relativeValuation } = useAnalysis()
   const [tab, setTab] = useState('Income Statement')
   const [stmtMode, setStmtMode] = useState('annual')
   const navigate = useNavigate()
@@ -266,6 +327,18 @@ export default function FinancialsPage() {
   const unit = companyInfo?.unit || null
   const sym = getCurrencySymbol(currency)
   const f = (v) => fmt(v, currency, unit)
+
+  // Rating badge: derive from valuation upside if available
+  const impliedPrice = dcf?.implied_price ?? relativeValuation?.implied_price ?? null
+  const currentPrice = companyInfo?.current_price ?? companyInfo?.price ?? null
+  const upside = impliedPrice && currentPrice ? (impliedPrice - currentPrice) / currentPrice : null
+  const rating = upside != null
+    ? upside > 0.20 ? { label: 'BUY', bg: 'bg-emerald-500', text: 'text-white' }
+    : upside > 0.05 ? { label: 'OUTPERFORM', bg: 'bg-blue-600', text: 'text-white' }
+    : upside > -0.05 ? { label: 'HOLD', bg: 'bg-yellow-400', text: 'text-gray-900' }
+    : upside > -0.20 ? { label: 'UNDERPERFORM', bg: 'bg-orange-500', text: 'text-white' }
+    : { label: 'SELL', bg: 'bg-red-600', text: 'text-white' }
+    : null
 
   function screenerVal(tableKey, rowLabel) {
     const rows = screenerTables?.[tableKey]?.rows || []
@@ -305,12 +378,24 @@ export default function FinancialsPage() {
 
             {/* Company title + actions */}
             <div className="flex items-start justify-between gap-4">
-              <h1 className="text-2xl font-bold text-gray-900">
-                {companyInfo?.name || 'Company'}{' '}
-                {companyInfo?.ticker && (
-                  <span className="text-gray-400 font-normal">({companyInfo.ticker})</span>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {companyInfo?.name || 'Company'}{' '}
+                  {companyInfo?.ticker && (
+                    <span className="text-gray-400 font-normal">({companyInfo.ticker})</span>
+                  )}
+                </h1>
+                {rating && (
+                  <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold tracking-wider ${rating.bg} ${rating.text}`}>
+                    {rating.label}
+                    {upside != null && (
+                      <span className="ml-1.5 opacity-80">
+                        {upside > 0 ? '+' : ''}{(upside * 100).toFixed(0)}%
+                      </span>
+                    )}
+                  </span>
                 )}
-              </h1>
+              </div>
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-200
                                    rounded-lg bg-white hover:bg-gray-50 transition-colors text-gray-600">
@@ -421,6 +506,11 @@ export default function FinancialsPage() {
                 <CashFlowSection financials={financials} currency={currency} unit={unit} />
               </div>
             </div>
+          )}
+
+          {/* CAGR Summary */}
+          {historicalMetrics?.length >= 2 && (
+            <CAGRPanel historicalMetrics={historicalMetrics} />
           )}
 
           {/* Screener tables */}
@@ -551,6 +641,16 @@ export default function FinancialsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Shareholding Pattern */}
+            {shareholders?.length > 0 && (
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
+                  Shareholding Pattern
+                </h3>
+                <ShareholdingChart shareholders={shareholders} viewMode="research" />
               </div>
             )}
 
