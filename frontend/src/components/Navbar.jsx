@@ -7,9 +7,11 @@ const CURRENCY_SYMBOLS = { INR: '₹', USD: '$', EUR: '€', GBP: '£', JPY: '¥
 const links = [
   { to: '/', label: 'Home', exact: true },
   { to: '/financials', label: 'Financials' },
+  { to: '/chart', label: 'Chart' },
+  { to: '/screener', label: 'Screener' },
+  { to: '/watchlist', label: 'Watchlist' },
   { to: '/forecast', label: 'Forecast' },
   { to: '/valuation', label: 'Valuation' },
-  { to: '/one-pager', label: 'One Pager' },
   { to: '/report', label: 'Report' },
 ]
 

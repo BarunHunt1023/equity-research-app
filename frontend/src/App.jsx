@@ -7,6 +7,9 @@ import ValuationPage from './pages/ValuationPage'
 import OnePagerPage from './pages/OnePagerPage'
 import ReportPage from './pages/ReportPage'
 import PeerBenchmarkingPage from './pages/PeerBenchmarkingPage'
+import ChartPage from './pages/ChartPage'
+import WatchlistPage from './pages/WatchlistPage'
+import ScreenerPage from './pages/ScreenerPage'
 
 export default function App() {
   return (
@@ -16,11 +19,14 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/financials" element={<FinancialsPage />} />
+          <Route path="/chart" element={<ChartPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/valuation" element={<ValuationPage />} />
           <Route path="/one-pager" element={<OnePagerPage />} />
           <Route path="/report" element={<ReportPage />} />
           <Route path="/peer-benchmarking" element={<PeerBenchmarkingPage />} />
+          <Route path="/watchlist" element={<WatchlistPage />} />
+          <Route path="/screener" element={<ScreenerPage />} />
         </Routes>
       </main>
     </div>

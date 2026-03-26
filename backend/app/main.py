@@ -12,6 +12,7 @@ from app.routes.analysis import router as analysis_router
 from app.routes.upload import router as upload_router
 from app.routes.report import router as report_router
 from app.routes.config import router as config_router
+from app.routes.market import router as market_router
 
 app = FastAPI(title="Equity Research App", version="1.0.0")
 
@@ -27,6 +28,7 @@ app.include_router(analysis_router, prefix="/api")
 app.include_router(upload_router, prefix="/api")
 app.include_router(report_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
+app.include_router(market_router, prefix="/api")
 
 
 @app.get("/api/health")
