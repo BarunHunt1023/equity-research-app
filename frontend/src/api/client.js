@@ -76,6 +76,11 @@ export async function getPeers(ticker) {
   return data
 }
 
+export async function getPriceHistory(ticker) {
+  const { data } = await api.get(`/price-history/${ticker}`)
+  return data
+}
+
 export async function getConfigStatus() {
   const { data } = await api.get('/config/status')
   return data
